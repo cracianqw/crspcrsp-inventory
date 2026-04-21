@@ -117,20 +117,34 @@ export default function Dashboard() {
                   </div>
                   {/* 종합 경보 배지 — 날씨 아이콘 수준 크기 */}
                   <div style={{
-                    marginLeft: 'auto', display: 'inline-flex', alignItems: 'center',
-                    gap: 10, height: 52, padding: '0 18px',
+                    marginLeft: 'auto', display: 'inline-flex', flexDirection: 'column',
+                    alignItems: 'center', justifyContent: 'center',
+                    gap: 2, minHeight: 52, padding: '6px 18px',
                     borderRadius: 12,
                     background: ALERT[compLv].bg,
                     color: ALERT[compLv].color,
                     border: `1.5px solid ${ALERT[compLv].color}50`,
-                    fontSize: 20, fontWeight: 800, letterSpacing: '0.05em',
                     whiteSpace: 'nowrap',
                   }}>
                     <span style={{
-                      width: 14, height: 14, borderRadius: '50%',
-                      background: ALERT[compLv].color,
-                    }} />
-                    {ALERT[compLv].label}
+                      fontSize: 10, fontWeight: 700,
+                      letterSpacing: '0.15em',
+                      textTransform: 'uppercase',
+                      opacity: 0.85,
+                    }}>
+                      주의 수준
+                    </span>
+                    <div style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 8,
+                      fontSize: 18, fontWeight: 800, letterSpacing: '0.05em',
+                      lineHeight: 1,
+                    }}>
+                      <span style={{
+                        width: 12, height: 12, borderRadius: '50%',
+                        background: ALERT[compLv].color,
+                      }} />
+                      {ALERT[compLv].label}
+                    </div>
                   </div>
                 </div>
 
@@ -159,6 +173,26 @@ export default function Dashboard() {
                   <span style={{ fontSize: 12, color: '#9ca3af', marginTop: 4 }}>
                     ↑{weather.max}° ↓{weather.min}°
                   </span>
+                </div>
+
+                {/* 단계 범례 */}
+                <div style={{
+                  display: 'flex', gap: 14, flexWrap: 'wrap',
+                  marginTop: 12, paddingTop: 10,
+                  borderTop: '1px dashed #e5e7eb',
+                }}>
+                  {[0, 1, 2, 3].map(lv => (
+                    <span key={lv} style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 5,
+                      fontSize: 11, fontWeight: 600, color: '#6b7280',
+                    }}>
+                      <span style={{
+                        width: 9, height: 9, borderRadius: '50%',
+                        background: ALERT[lv].color,
+                      }} />
+                      {ALERT[lv].label}
+                    </span>
+                  ))}
                 </div>
               </>
             ) : <p style={{ fontSize: 14, color: '#9ca3af' }}>날씨 정보를 불러올 수 없습니다</p>}
