@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { Cloud, Wind, Droplets, Package, Calendar, Target } from 'lucide-react'
+import { Cloud, Wind, Droplets, Thermometer, AlertTriangle, Package, Calendar, Target } from 'lucide-react'
 import { PageHeader, StatCard, Card, CardHeader, EmptyState, Spinner, LotBadge, Badge } from '../components/UI'
 
 const WMO = {
@@ -10,6 +10,45 @@ const WMO = {
   51: { label: '가랑비', emoji: '🌦️' }, 61: { label: '비', emoji: '🌧️' }, 65: { label: '폭우', emoji: '🌧️' },
   71: { label: '눈', emoji: '❄️' }, 80: { label: '소나기', emoji: '🌦️' }, 82: { label: '강한 소나기', emoji: '⛈️' },
   95: { label: '천둥번개', emoji: '⛈️' },
+}
+
+// ── 기상 경보 인디케이터 ────────────────────────────────────
+const ALERT = {
+  0: { label: '정상', color: '#059669', bg: '#d1fae5' },
+  1: { label: '주의', color: '#d97706', bg: '#fef3c7' },
+  2: { label: '경고', color: '#ea580c', bg: '#ffedd5' },
+  3: { label: '위험', color: '#dc2626', bg: '#fee2e2' },
+}
+function windLevel(v) {
+  if (v >= 60) return { level: 3, msg: '시설 파손 주의' }
+  if (v >= 40) return { level: 2, msg: '시설 주의' }
+  if (v >= 20) return { level: 1, msg: '바람 주의' }
+  return { level: 0, msg: null }
+}
+function humidityLevel(v) {
+  if (v >= 70) return { level: 3, msg: '완성품 체크 필수' }
+  if (v >= 60) return { level: 2, msg: '내부 습도 모니터링 필수' }
+  if (v >= 50) return { level: 1, msg: '습도 주의' }
+  return { level: 0, msg: null }
+}
+function tempLevel(v) {
+  if (v >= 33) return { level: 3, msg: '작업자 건강 확인 필수' }
+  if (v >= 27) return { level: 2, msg: '작업장 온도 모니터링 필수' }
+  if (v >= 23) return { level: 1, msg: '작업장 고온 주의' }
+  return { level: 0, msg: null }
+}
+function MetricPill({ icon: Icon, value, level }) {
+  const c = ALERT[level.level]
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', gap: 4,
+      fontSize: 12, fontWeight: 600, padding: '4px 8px',
+      borderRadius: 6, background: c.bg, color: c.color,
+      whiteSpace: 'nowrap',
+    }}>
+      <Icon size={11} />{value}
+    </span>
+  )
 }
 
 function getWeek() {
@@ -40,6 +79,11 @@ export default function Dashboard() {
   }, [])
 
   const wmo = weather ? (WMO[weather.code] ?? { label: '알 수 없음', emoji: '🌡️' }) : null
+  const windLv = weather ? windLevel(weather.wind) : { level: 0 }
+  const humLv  = weather ? humidityLevel(weather.humidity) : { level: 0 }
+  const tempLv = weather ? tempLevel(weather.temp) : { level: 0 }
+  const compLv = Math.max(windLv.level, humLv.level, tempLv.level)
+  const warnings = [windLv, humLv, tempLv].filter(x => x.msg)
   const planTotal = plans.reduce((s, p) => s + (Number(p.planned_qty) || 0), 0)
   const actualTotal = actuals.reduce((s, r) => s + (Number(r.output_qty) || 0), 0)
   const achievement = planTotal > 0 ? Math.round((actualTotal / planTotal) * 100) : null
@@ -54,12 +98,14 @@ export default function Dashboard() {
       {/* 상단 카드 */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
 
-        {/* 날씨 */}
+        {/* 날씨 + 기상 경보 */}
         <Card>
           <div style={{ padding: 24 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
               <span style={{ fontSize: 13, fontWeight: 500, color: '#6b7280' }}>포항 청하 날씨</span>
-              <Cloud size={18} color="#d1d5db" />
+              {weather ? (
+                <Badge label={ALERT[compLv].label} color={ALERT[compLv].color} bg={ALERT[compLv].bg} />
+              ) : <Cloud size={18} color="#d1d5db" />}
             </div>
             {wLoading ? (
               <div style={{ height: 80, display: 'flex', alignItems: 'center' }}><Spinner /></div>
@@ -72,11 +118,33 @@ export default function Dashboard() {
                     <p style={{ fontSize: 14, color: '#6b7280', marginTop: 4 }}>{wmo.label}</p>
                   </div>
                 </div>
-                <div style={{ display: 'flex', gap: 16, paddingTop: 14, borderTop: '1px solid #f3f4f6' }}>
-                  <span style={{ fontSize: 13, color: '#9ca3af', display: 'flex', alignItems: 'center', gap: 4 }}><Wind size={12} />{weather.wind}km/h</span>
-                  <span style={{ fontSize: 13, color: '#9ca3af', display: 'flex', alignItems: 'center', gap: 4 }}><Droplets size={12} />{weather.humidity}%</span>
-                  <span style={{ fontSize: 13, color: '#9ca3af' }}>↑{weather.max}° ↓{weather.min}°</span>
+                <div style={{ display: 'flex', gap: 6, paddingTop: 14, borderTop: '1px solid #f3f4f6', flexWrap: 'wrap' }}>
+                  <MetricPill icon={Wind} value={`${weather.wind}km/h`} level={windLv} />
+                  <MetricPill icon={Droplets} value={`${weather.humidity}%`} level={humLv} />
+                  <MetricPill icon={Thermometer} value={`${weather.temp}°`} level={tempLv} />
+                  <span style={{ fontSize: 12, color: '#9ca3af', display: 'inline-flex', alignItems: 'center', padding: '4px 4px' }}>
+                    ↑{weather.max}° ↓{weather.min}°
+                  </span>
                 </div>
+                {warnings.length > 0 && (
+                  <div style={{
+                    marginTop: 12, padding: '10px 12px',
+                    background: ALERT[compLv].bg,
+                    border: `1px solid ${ALERT[compLv].color}20`,
+                    borderRadius: 8,
+                    display: 'flex', flexDirection: 'column', gap: 4,
+                  }}>
+                    {warnings.map((w, i) => (
+                      <div key={i} style={{
+                        display: 'flex', alignItems: 'center', gap: 6,
+                        fontSize: 12, fontWeight: 600,
+                        color: ALERT[w.level].color,
+                      }}>
+                        <AlertTriangle size={12} />{w.msg}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </>
             ) : <p style={{ fontSize: 14, color: '#9ca3af' }}>날씨 정보를 불러올 수 없습니다</p>}
           </div>
