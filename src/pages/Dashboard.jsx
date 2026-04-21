@@ -14,10 +14,10 @@ const WMO = {
 
 // ── 기상 경보 인디케이터 ────────────────────────────────────
 const ALERT = {
-  0: { label: '정상', color: '#059669', bg: '#d1fae5' },
-  1: { label: '주의', color: '#d97706', bg: '#fef3c7' },
-  2: { label: '경고', color: '#ea580c', bg: '#ffedd5' },
-  3: { label: '위험', color: '#dc2626', bg: '#fee2e2' },
+  0: { label: '양호', color: '#059669', bg: '#d1fae5' },
+  1: { label: '관심', color: '#d97706', bg: '#fef3c7' },
+  2: { label: '주의', color: '#ea580c', bg: '#ffedd5' },
+  3: { label: '경고', color: '#dc2626', bg: '#fee2e2' },
 }
 function windLevel(v) {
   if (v >= 60) return { level: 3, msg: '시설 파손 주의' }
@@ -83,7 +83,6 @@ export default function Dashboard() {
   const humLv  = weather ? humidityLevel(weather.humidity) : { level: 0 }
   const tempLv = weather ? tempLevel(weather.temp) : { level: 0 }
   const compLv = Math.max(windLv.level, humLv.level, tempLv.level)
-  const warnings = [windLv, humLv, tempLv].filter(x => x.msg)
   const planTotal = plans.reduce((s, p) => s + (Number(p.planned_qty) || 0), 0)
   const actualTotal = actuals.reduce((s, r) => s + (Number(r.output_qty) || 0), 0)
   const achievement = planTotal > 0 ? Math.round((actualTotal / planTotal) * 100) : null
@@ -103,48 +102,65 @@ export default function Dashboard() {
           <div style={{ padding: 24 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
               <span style={{ fontSize: 13, fontWeight: 500, color: '#6b7280' }}>포항 청하 날씨</span>
-              {weather ? (
-                <Badge label={ALERT[compLv].label} color={ALERT[compLv].color} bg={ALERT[compLv].bg} />
-              ) : <Cloud size={18} color="#d1d5db" />}
+              <Cloud size={18} color="#d1d5db" />
             </div>
             {wLoading ? (
               <div style={{ height: 80, display: 'flex', alignItems: 'center' }}><Spinner /></div>
             ) : weather ? (
               <>
-                <div style={{ display: 'flex', alignItems: 'flex-end', gap: 14, marginBottom: 16 }}>
-                  <span style={{ fontSize: 44 }}>{wmo.emoji}</span>
+                {/* 메인: 날씨 아이콘 + 온도 + 종합 경보 배지 (큰 크기) */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 16, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 44, lineHeight: 1 }}>{wmo.emoji}</span>
                   <div>
                     <p style={{ fontSize: 40, fontWeight: 700, color: '#111827', lineHeight: 1 }}>{weather.temp}°</p>
                     <p style={{ fontSize: 14, color: '#6b7280', marginTop: 4 }}>{wmo.label}</p>
                   </div>
+                  {/* 종합 경보 배지 — 날씨 아이콘 수준 크기 */}
+                  <div style={{
+                    marginLeft: 'auto', display: 'inline-flex', alignItems: 'center',
+                    gap: 10, height: 52, padding: '0 18px',
+                    borderRadius: 12,
+                    background: ALERT[compLv].bg,
+                    color: ALERT[compLv].color,
+                    border: `1.5px solid ${ALERT[compLv].color}50`,
+                    fontSize: 20, fontWeight: 800, letterSpacing: '0.05em',
+                    whiteSpace: 'nowrap',
+                  }}>
+                    <span style={{
+                      width: 14, height: 14, borderRadius: '50%',
+                      background: ALERT[compLv].color,
+                    }} />
+                    {ALERT[compLv].label}
+                  </div>
                 </div>
-                <div style={{ display: 'flex', gap: 6, paddingTop: 14, borderTop: '1px solid #f3f4f6', flexWrap: 'wrap' }}>
-                  <MetricPill icon={Wind} value={`${weather.wind}km/h`} level={windLv} />
-                  <MetricPill icon={Droplets} value={`${weather.humidity}%`} level={humLv} />
-                  <MetricPill icon={Thermometer} value={`${weather.temp}°`} level={tempLv} />
-                  <span style={{ fontSize: 12, color: '#9ca3af', display: 'inline-flex', alignItems: 'center', padding: '4px 4px' }}>
+
+                {/* 항목별 메트릭 + 경고 문구 */}
+                <div style={{
+                  display: 'flex', flexDirection: 'column', gap: 8,
+                  paddingTop: 14, borderTop: '1px solid #f3f4f6',
+                }}>
+                  {[
+                    { lv: windLv, Icon: Wind,        value: `${weather.wind} km/h` },
+                    { lv: humLv,  Icon: Droplets,    value: `${weather.humidity} %` },
+                    { lv: tempLv, Icon: Thermometer, value: `${weather.temp} °C` },
+                  ].map((m, i) => (
+                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                      <MetricPill icon={m.Icon} value={m.value} level={m.lv} />
+                      {m.lv.msg && (
+                        <span style={{
+                          display: 'inline-flex', alignItems: 'center', gap: 4,
+                          fontSize: 12, fontWeight: 600,
+                          color: ALERT[m.lv.level].color,
+                        }}>
+                          <AlertTriangle size={12} />{m.lv.msg}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                  <span style={{ fontSize: 12, color: '#9ca3af', marginTop: 4 }}>
                     ↑{weather.max}° ↓{weather.min}°
                   </span>
                 </div>
-                {warnings.length > 0 && (
-                  <div style={{
-                    marginTop: 12, padding: '10px 12px',
-                    background: ALERT[compLv].bg,
-                    border: `1px solid ${ALERT[compLv].color}20`,
-                    borderRadius: 8,
-                    display: 'flex', flexDirection: 'column', gap: 4,
-                  }}>
-                    {warnings.map((w, i) => (
-                      <div key={i} style={{
-                        display: 'flex', alignItems: 'center', gap: 6,
-                        fontSize: 12, fontWeight: 600,
-                        color: ALERT[w.level].color,
-                      }}>
-                        <AlertTriangle size={12} />{w.msg}
-                      </div>
-                    ))}
-                  </div>
-                )}
               </>
             ) : <p style={{ fontSize: 14, color: '#9ca3af' }}>날씨 정보를 불러올 수 없습니다</p>}
           </div>
