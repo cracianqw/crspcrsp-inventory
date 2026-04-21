@@ -20,9 +20,10 @@ import {
 } from '../components/UI'
 
 const ROLES = [
-  { value: 'master',  label: '마스터',  color: '#92400e', bg: '#fef3c7', desc: '전체 관리 권한' },
-  { value: 'manager', label: '매니저',  color: '#065f46', bg: '#d1fae5', desc: '입출고·생산 관리' },
-  { value: 'worker',  label: '작업자',  color: '#374151', bg: '#f3f4f6', desc: '조회·기록 입력' },
+  { value: 'master',         label: '마스터',       color: '#92400e', bg: '#fef3c7', desc: '전체 + 계정 관리' },
+  { value: 'senior_manager', label: '시니어 매니저', color: '#7c2d12', bg: '#ffedd5', desc: '조회·입력·수정·삭제' },
+  { value: 'manager',        label: '매니저',       color: '#065f46', bg: '#d1fae5', desc: '조회·입력' },
+  { value: 'worker',         label: '작업자',       color: '#374151', bg: '#f3f4f6', desc: '조회 전용' },
 ]
 
 function NewUserModal({ onClose, onSave }) {
@@ -46,7 +47,7 @@ function NewUserModal({ onClose, onSave }) {
       const { error: pErr } = await supabase.from('users').insert({ id: authData.user.id, name: form.name, email, role: form.role })
       if (pErr && pErr.code !== '23505') { setError(pErr.message); setSaving(false); return }
     }
-    setSuccess(`계정이 생성되었습니다: ${uname}`)
+    setSuccess(`계정이 생성되었습니다. 바로 로그인 가능: ${uname}`)
     setSaving(false)
     setTimeout(() => onSave(), 1500)
   }
@@ -163,7 +164,7 @@ export default function Users() {
 
   async function fetchUsers() {
     setLoading(true)
-    const { data } = await supabase.from('users').select('*').order('created_at')
+    const { data } = await supabase.from('users').select('*').is('deleted_at', null).order('created_at')
     setUsers(data || []); setLoading(false)
   }
 
@@ -177,8 +178,11 @@ export default function Users() {
   async function deleteUser(u) {
     if (u.id === currentUser?.id) { alert('본인 계정은 삭제할 수 없습니다.'); return }
     const uname = toUsername(u.email)
-    if (!confirm(`[${uname}] 계정의 프로필을 삭제하시겠습니까?\n\n- users 테이블 행이 삭제됩니다.\n- Auth 계정(로그인 자격증명)은 Supabase Dashboard에서 별도로 삭제해야 완전히 제거됩니다.`)) return
-    const { error } = await supabase.from('users').delete().eq('id', u.id)
+    if (!confirm(`[${uname}] 계정을 삭제하시겠습니까?\n\n소프트 딜리트 처리되며 "삭제 내역" 메뉴에서 복구할 수 있습니다.\n(Supabase Auth 자격증명은 Dashboard에서 별도 정리 필요)`)) return
+    const { error } = await supabase.from('users').update({
+      deleted_at: new Date().toISOString(),
+      deleted_by: currentUser?.id || null,
+    }).eq('id', u.id)
     if (error) { alert(error.message); return }
     fetchUsers()
   }
@@ -206,7 +210,7 @@ export default function Users() {
         <RegisterBtn onClick={() => setModal('new')}>사용자 추가</RegisterBtn>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 24 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 16, marginBottom: 24 }}>
         <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e9ecef', boxShadow: '0 4px 12px rgba(0,0,0,0.06)', padding: 24 }}>
           <p style={{ fontSize: 14, color: '#6b7280', marginBottom: 14, fontWeight: 500 }}>전체</p>
           <p style={{ fontSize: 40, fontWeight: 700, color: '#111827', lineHeight: 1.1 }}>{users.length}</p>
@@ -313,7 +317,7 @@ export default function Users() {
       <InfoBanner type="brand">
         <strong>💡 비밀번호 재설정 안내</strong><br />
         비밀번호 재설정 버튼을 누르면 해당 사용자 이메일로 재설정 링크가 전송됩니다.
-        신규 계정 생성 시 이메일 인증이 필요할 수 있습니다 (Supabase Auth 설정에 따라 다름).
+        신규 계정은 생성 즉시 로그인 가능합니다 (이메일 인증 비활성화됨).
       </InfoBanner>
       </div>
 

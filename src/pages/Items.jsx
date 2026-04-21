@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
-import { Edit2, Package, Wheat, History, Power, PowerOff } from 'lucide-react'
+import { Edit2, Package, Wheat, History, Power, PowerOff, Trash2 } from 'lucide-react'
 import {
   Card, Btn, RegisterBtn, IconBtn,
   Label, Input, SelectInput,
@@ -270,9 +270,10 @@ function HistoryModal({ item, onClose }) {
 
 // ── 메인 ─────────────────────────────────────────────
 export default function Items() {
-  const { isMaster, profile } = useAuth()
-  // 마스터 계정만 추가/수정/생산중지/이력 가능 — 일반 사용자는 조회 전용
-  const canEdit = isMaster
+  const { profile, canInsert, canUpdate, canDelete } = useAuth()
+  // 조회는 모두, 입력=매니저+, 수정/삭제=시니어+
+  const canEditRow = canUpdate  // 수정/생산중지
+  const canSoftDelete = canDelete
   const [tab, setTab] = useState('items')
   const [items, setItems] = useState([])
   const [rawMaterials, setRawMaterials] = useState([])
@@ -286,11 +287,31 @@ export default function Items() {
   async function fetchAll() {
     setLoading(true)
     const [{ data: its }, { data: rms }] = await Promise.all([
-      supabase.from('items').select('*').order('code'),
-      supabase.from('raw_materials').select('*').order('code'),
+      supabase.from('items').select('*').is('deleted_at', null).order('code'),
+      supabase.from('raw_materials').select('*').is('deleted_at', null).order('code'),
     ])
     setItems(its || []); setRawMaterials(rms || [])
     setLoading(false)
+  }
+
+  async function softDeleteItem(item) {
+    if (!confirm(`[${item.name}] 품목을 삭제하시겠습니까?\n\n삭제 내역 메뉴에서 복구할 수 있습니다.`)) return
+    const { error } = await supabase.from('items').update({
+      deleted_at: new Date().toISOString(),
+      deleted_by: profile?.id || null,
+    }).eq('id', item.id)
+    if (error) { alert(error.message); return }
+    await logChange({ itemId: item.id, profile, action: 'deactivate', changes: { deleted_at: { before: null, after: 'deleted' } } })
+    fetchAll()
+  }
+  async function softDeleteRaw(rm) {
+    if (!confirm(`[${rm.name}] 원자재를 삭제하시겠습니까?\n\n삭제 내역 메뉴에서 복구할 수 있습니다.`)) return
+    const { error } = await supabase.from('raw_materials').update({
+      deleted_at: new Date().toISOString(),
+      deleted_by: profile?.id || null,
+    }).eq('id', rm.id)
+    if (error) { alert(error.message); return }
+    fetchAll()
   }
 
   async function toggleActive(item) {
@@ -321,7 +342,7 @@ export default function Items() {
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 24 }}>
         <h1 style={{ fontSize: 28, fontWeight: 700, color: '#111827', lineHeight: 1.2, display: 'flex', alignItems: 'center', margin: 0 }}>품목 관리</h1>
-        {canEdit && (
+        {canInsert && (
           <RegisterBtn onClick={() => { setSelected(null); setModal(tab === 'items' ? 'new-item' : 'new-raw') }}>
             품목 추가
           </RegisterBtn>
@@ -386,7 +407,7 @@ export default function Items() {
         ) : tab === 'items' ? (
           filtered.length === 0 ? <EmptyState icon={Package} text={activeFilter === 'inactive' ? '생산중지 품목이 없습니다' : '등록된 완성품이 없습니다'} /> : (
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead><tr>{['코드', '품명', '카테고리', '단위', '중량(g)', '매수', '포장', '장당원초', '소비기한', '상태', canEdit ? '관리' : ''].map(h => <Th key={h}>{h}</Th>)}</tr></thead>
+              <thead><tr>{['코드', '품명', '카테고리', '단위', '중량(g)', '매수', '포장', '장당원초', '소비기한', '상태', canEditRow ? '관리' : ''].map(h => <Th key={h}>{h}</Th>)}</tr></thead>
               <tbody>
                 {filtered.map((item, i) => {
                   const dim = !item.is_active
@@ -411,7 +432,7 @@ export default function Items() {
                           color={item.is_active ? '#059669' : '#9ca3af'}
                           bg={item.is_active ? '#d1fae5' : '#f3f4f6'} />
                       </Td>
-                      {canEdit && (
+                      {canEditRow && (
                         <Td>
                           <div style={{ display: 'flex', gap: 6 }}>
                             <IconBtn icon={Edit2} onClick={() => { setSelected(item); setModal('edit-item') }} label="수정" />
@@ -421,6 +442,9 @@ export default function Items() {
                               variant={item.is_active ? 'danger' : 'accent'}
                               onClick={() => toggleActive(item)}
                               label={item.is_active ? '생산중지' : '재활성화'} />
+                            {canSoftDelete && (
+                              <IconBtn icon={Trash2} variant="danger" onClick={() => softDeleteItem(item)} label="삭제" />
+                            )}
                           </div>
                         </Td>
                       )}
@@ -433,17 +457,18 @@ export default function Items() {
         ) : (
           rawMaterials.length === 0 ? <EmptyState icon={Wheat} text="등록된 원자재가 없습니다" /> : (
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead><tr>{['코드', '원자재명', '단위', canEdit ? '관리' : ''].map(h => <Th key={h}>{h}</Th>)}</tr></thead>
+              <thead><tr>{['코드', '원자재명', '단위', canEditRow ? '관리' : ''].map(h => <Th key={h}>{h}</Th>)}</tr></thead>
               <tbody>
                 {rawMaterials.map((rm, i) => (
                   <tr key={rm.id} style={{ backgroundColor: i % 2 === 0 ? '#fff' : '#fafafa' }}>
                     <Td><LotBadge>{rm.code}</LotBadge></Td>
                     <Td><span style={{ fontWeight: 500, color: '#111827' }}>{rm.name}</span></Td>
                     <Td style={{ color: '#6b7280' }}>{rm.unit}</Td>
-                    {canEdit && (
+                    {canEditRow && (
                       <Td>
                         <div style={{ display: 'flex', gap: 6 }}>
                           <IconBtn icon={Edit2} onClick={() => { setSelected(rm); setModal('edit-raw') }} label="수정" />
+                          {canSoftDelete && <IconBtn icon={Trash2} variant="danger" onClick={() => softDeleteRaw(rm)} label="삭제" />}
                         </div>
                       </Td>
                     )}

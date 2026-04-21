@@ -41,11 +41,27 @@ export function AuthProvider({ children }) {
     await supabase.auth.signOut()
   }
 
-  const isMaster = profile?.role === 'master'
-  const isManager = profile?.role === 'master' || profile?.role === 'manager'
+  const role = profile?.role
+  const isMaster        = role === 'master'
+  const isSeniorManager = role === 'master' || role === 'senior_manager'
+  const isManager       = role === 'master' || role === 'senior_manager' || role === 'manager'
+  const isWorker        = role === 'worker'
+
+  // 기능별 헬퍼
+  const canInsert        = isManager        // 등록
+  const canUpdate        = isSeniorManager  // 수정
+  const canDelete        = isSeniorManager  // 삭제 (소프트)
+  const canManage        = isMaster         // 계정/권한 관리
+  const canViewDeleted   = isSeniorManager  // 삭제 내역 열람
+  const canRestore       = isSeniorManager  // 복구
+  const canHardDelete    = isMaster         // 영구 삭제는 마스터만
 
   return (
-    <AuthContext.Provider value={{ user, profile, loading, signIn, signOut, isMaster, isManager }}>
+    <AuthContext.Provider value={{
+      user, profile, loading, signIn, signOut,
+      role, isMaster, isSeniorManager, isManager, isWorker,
+      canInsert, canUpdate, canDelete, canManage, canViewDeleted, canRestore, canHardDelete,
+    }}>
       {children}
     </AuthContext.Provider>
   )

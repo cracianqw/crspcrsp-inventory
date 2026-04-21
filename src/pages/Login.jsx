@@ -17,7 +17,6 @@ export default function Login() {
     e.preventDefault()
     setError('')
     setLoading(true)
-    // 아이디 → 이메일로 변환: 이미 @ 포함 시 그대로, 아니면 @crspcrsp.com 덧붙임
     const id = username.trim().toLowerCase()
     const email = id.includes('@') ? id : `${id}@${EMAIL_DOMAIN}`
     const { error } = await signIn(email, password)
@@ -25,106 +24,135 @@ export default function Login() {
     setLoading(false)
   }
 
+  // 입력에 @ 포함 시 suffix 숨김 — 단, <input>은 항상 wrapper 안 같은 위치에 유지해 커서 보존
+  const showSuffix = !username.includes('@')
+
+  const inputBase = {
+    width: '100%', height: 56, padding: '0 18px',
+    fontSize: 16, color: '#111827',
+    backgroundColor: '#fafafa',
+    border: '2px solid #e5e7eb',
+    borderRadius: 12, outline: 'none',
+    transition: 'border-color 0.15s',
+    boxSizing: 'border-box',
+  }
+
   return (
-    <div className="min-h-screen flex items-center justify-center px-4" style={{ backgroundColor: '#FCF4E2' }}>
-      <div className="w-full max-w-sm">
+    <div style={{
+      minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
+      padding: 16, backgroundColor: '#FCF4E2',
+    }}>
+      <div style={{ width: '100%', maxWidth: 380 }}>
+
         {/* Brand */}
-        <div className="text-center mb-10">
-          <div
-            className="inline-flex items-center justify-center w-16 h-16 rounded-2xl mb-5 shadow-lg"
-            style={{ backgroundColor: '#004634' }}
-          >
-            <span className="text-white text-xl font-black tracking-widest">CC</span>
+        <div style={{ textAlign: 'center', marginBottom: 40 }}>
+          <div style={{
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+            width: 64, height: 64, borderRadius: 16, marginBottom: 20,
+            background: '#004634', boxShadow: '0 10px 25px rgba(0,0,0,0.12)',
+          }}>
+            <span style={{ color: '#fff', fontSize: 22, fontWeight: 900, letterSpacing: '0.15em' }}>CC</span>
           </div>
-          <h1 className="text-2xl font-black tracking-[0.25em]" style={{ color: '#004634' }}>
+          <h1 style={{ fontSize: 26, fontWeight: 900, letterSpacing: '0.25em', color: '#004634', margin: 0 }}>
             CRSP CRSP
           </h1>
-          <p className="text-xs font-semibold mt-1.5 tracking-widest uppercase" style={{ color: '#D4A96A' }}>
+          <p style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.18em', color: '#D4A96A', marginTop: 6, textTransform: 'uppercase' }}>
             생산·재고 관리 시스템
           </p>
         </div>
 
         {/* Card */}
-        <div className="bg-white rounded-3xl shadow-xl p-8" style={{ border: '1.5px solid #D4A96A30' }}>
-          <h2 className="text-base font-bold mb-6" style={{ color: '#004634' }}>로그인</h2>
+        <div style={{
+          background: '#fff', borderRadius: 24, padding: 36,
+          border: '1.5px solid rgba(212,169,106,0.2)',
+          boxShadow: '0 12px 40px rgba(0,0,0,0.08)',
+        }}>
+          <h2 style={{ fontSize: 16, fontWeight: 700, color: '#004634', marginBottom: 28 }}>로그인</h2>
 
           {error && (
-            <div className="mb-4 px-4 py-3 rounded-xl text-sm text-red-700 bg-red-50 border border-red-200">
-              {error}
-            </div>
+            <div style={{
+              marginBottom: 20, padding: '14px 16px', borderRadius: 12,
+              fontSize: 14, color: '#b91c1c', background: '#fef2f2',
+              border: '1px solid #fecaca',
+            }}>{error}</div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
             <div>
-              <label className="block text-xs font-bold mb-2 tracking-widest uppercase" style={{ color: '#004634' }}>
-                아이디
-              </label>
-              {username.includes('@') ? (
+              <label style={{
+                display: 'block', fontSize: 12, fontWeight: 700,
+                letterSpacing: '0.2em', textTransform: 'uppercase',
+                color: '#004634', marginBottom: 10,
+              }}>아이디</label>
+              <div style={{ display: 'flex', alignItems: 'stretch' }}>
                 <input
                   type="text"
                   value={username}
                   onChange={e => setUsername(e.target.value)}
-                  placeholder="paul@olistable.com"
+                  placeholder={showSuffix ? 'stock01' : 'paul@olistable.com'}
                   required
                   autoCapitalize="off" autoCorrect="off" autoComplete="username"
-                  className="w-full px-4 py-3 rounded-xl text-sm outline-none transition-all"
-                  style={{ border: '2px solid #e5e7eb', backgroundColor: '#fafafa' }}
+                  style={{
+                    ...inputBase,
+                    flex: 1, minWidth: 0,
+                    borderTopRightRadius:    showSuffix ? 0 : 12,
+                    borderBottomRightRadius: showSuffix ? 0 : 12,
+                    borderRightWidth: showSuffix ? 0 : 2,
+                  }}
                   onFocus={e => (e.target.style.borderColor = '#004634')}
                   onBlur={e => (e.target.style.borderColor = '#e5e7eb')}
                 />
-              ) : (
-                <div className="flex items-stretch">
-                  <input
-                    type="text"
-                    value={username}
-                    onChange={e => setUsername(e.target.value)}
-                    placeholder="stock01"
-                    required
-                    autoCapitalize="off" autoCorrect="off" autoComplete="username"
-                    className="flex-1 min-w-0 px-4 py-3 rounded-l-xl text-sm outline-none transition-all"
-                    style={{ border: '2px solid #e5e7eb', borderRight: 'none', backgroundColor: '#fafafa' }}
-                    onFocus={e => (e.target.style.borderColor = '#004634')}
-                    onBlur={e => (e.target.style.borderColor = '#e5e7eb')}
-                  />
-                  <span
-                    className="inline-flex items-center px-3 rounded-r-xl text-sm font-semibold"
-                    style={{ border: '2px solid #e5e7eb', borderLeft: 'none', backgroundColor: '#f3f4f6', color: '#6b7280' }}>
-                    @{EMAIL_DOMAIN}
-                  </span>
-                </div>
-              )}
-              <p className="text-[11px] mt-1.5" style={{ color: '#9ca3af' }}>
-                일반 직원은 아이디만, 마스터는 전체 이메일 입력
-              </p>
+                {showSuffix && (
+                  <span style={{
+                    display: 'inline-flex', alignItems: 'center',
+                    padding: '0 16px',
+                    fontSize: 14, fontWeight: 600, color: '#6b7280',
+                    background: '#f3f4f6',
+                    border: '2px solid #e5e7eb', borderLeft: 'none',
+                    borderTopRightRadius: 12, borderBottomRightRadius: 12,
+                  }}>@{EMAIL_DOMAIN}</span>
+                )}
+              </div>
             </div>
+
             <div>
-              <label className="block text-xs font-bold mb-2 tracking-widest uppercase" style={{ color: '#004634' }}>
-                비밀번호
-              </label>
+              <label style={{
+                display: 'block', fontSize: 12, fontWeight: 700,
+                letterSpacing: '0.2em', textTransform: 'uppercase',
+                color: '#004634', marginBottom: 10,
+              }}>비밀번호</label>
               <input
                 type="password"
                 value={password}
                 onChange={e => setPassword(e.target.value)}
                 placeholder="••••••••"
                 required
-                className="w-full px-4 py-3 rounded-xl text-sm outline-none transition-all"
-                style={{ border: '2px solid #e5e7eb', backgroundColor: '#fafafa' }}
+                autoComplete="current-password"
+                style={inputBase}
                 onFocus={e => (e.target.style.borderColor = '#004634')}
                 onBlur={e => (e.target.style.borderColor = '#e5e7eb')}
               />
             </div>
+
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-3.5 rounded-xl text-sm font-bold text-white transition-all mt-2"
-              style={{ backgroundColor: loading ? '#9ca3af' : '#004634', letterSpacing: '0.05em' }}
-            >
+              style={{
+                width: '100%', height: 56,
+                marginTop: 8, padding: 0,
+                borderRadius: 12, border: 'none',
+                fontSize: 15, fontWeight: 700, letterSpacing: '0.06em',
+                color: '#fff',
+                background: loading ? '#9ca3af' : '#004634',
+                cursor: loading ? 'not-allowed' : 'pointer',
+                transition: 'background 0.15s',
+              }}>
               {loading ? '로그인 중...' : '로그인'}
             </button>
           </form>
         </div>
 
-        <p className="text-center text-xs mt-6 font-medium" style={{ color: '#D4A96A' }}>
+        <p style={{ textAlign: 'center', fontSize: 12, marginTop: 24, fontWeight: 500, color: '#D4A96A' }}>
           © 2025 Crsp Crsp. All rights reserved.
         </p>
       </div>

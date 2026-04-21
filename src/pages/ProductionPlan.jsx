@@ -74,7 +74,7 @@ export default function ProductionPlan() {
     const yearAgo = fmtISO(addDays(weekStart, -364))
 
     const [itemsR, planR, yearR, prodR] = await Promise.all([
-      supabase.from('items').select('*').eq('is_active', true).order('code'),
+      supabase.from('items').select('*').eq('is_active', true).is('deleted_at', null).order('code'),
       supabase.from('weekly_plans').select('*').gte('week_start', w4ago).lte('week_start', currentIso),
       supabase.from('weekly_plans').select('*').eq('week_start', yearAgo),
       supabase.from('production_records')

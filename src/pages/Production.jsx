@@ -7,6 +7,7 @@ import {
   Label, Input, SelectInput, Textarea,
   ErrorBox, EmptyState, Spinner, Section,
   Th, Td, Badge, LotBadge, DateBadge, SearchInput,
+  AuditStamp, useUserMap,
 } from '../components/UI'
 
 const QC_STATUS = [
@@ -199,7 +200,7 @@ function ProductionModal({ items, availableLots, onClose, onSave }) {
   )
 }
 
-function ProductionRow({ record, index }) {
+function ProductionRow({ record, index, userMap }) {
   const [open, setOpen] = useState(false)
   const [lotInputs, setLotInputs] = useState([])
   const [photos, setPhotos] = useState([])
@@ -230,11 +231,13 @@ function ProductionRow({ record, index }) {
           )}
         </Td>
         <Td><Badge label={qc.label} color={qc.color} bg={qc.bg} /></Td>
+        <Td><AuditStamp userName={userMap[record.created_by]} at={record.created_at} /></Td>
+        <Td><AuditStamp userName={userMap[record.updated_by]} at={record.updated_at} /></Td>
         <Td>{open ? <ChevronUp size={16} className="text-gray-400" /> : <ChevronDown size={16} className="text-gray-400" />}</Td>
       </tr>
       {open && (
         <tr>
-          <td colSpan={8} className="px-8 py-6 bg-gray-50/50" style={{ borderBottom: '1px solid #f9fafb' }}>
+          <td colSpan={10} className="px-8 py-6 bg-gray-50/50" style={{ borderBottom: '1px solid #f9fafb' }}>
             <div className="grid grid-cols-2 gap-8">
               <div>
                 <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">투입 LOT</p>
@@ -283,6 +286,7 @@ function ProductionRow({ record, index }) {
 }
 
 export default function Production() {
+  const userMap = useUserMap()
   const [records, setRecords] = useState([])
   const [items, setItems] = useState([])
   const [availableLots, setAvailableLots] = useState([])
@@ -295,8 +299,8 @@ export default function Production() {
   async function fetchAll() {
     setLoading(true)
     const [{ data: recs }, { data: its }, { data: lots }] = await Promise.all([
-      supabase.from('production_records').select('*, items(name, code)').order('plan_date', { ascending: false }).limit(100),
-      supabase.from('items').select('*').eq('is_active', true).order('name'),
+      supabase.from('production_records').select('*, items(name, code)').is('deleted_at', null).order('plan_date', { ascending: false }).limit(100),
+      supabase.from('items').select('*').eq('is_active', true).is('deleted_at', null).order('name'),
       supabase.from('raw_material_stock').select('*').gt('remaining_qty', 0).order('received_at', { ascending: false }),
     ])
     setRecords(recs || []); setItems(its || []); setAvailableLots(lots || [])
@@ -337,9 +341,9 @@ export default function Production() {
           <EmptyState icon={Factory} text={search ? '검색 결과가 없습니다' : '등록된 생산 기록이 없습니다'} />
         ) : (
           <table className="w-full">
-            <thead><tr>{['생산일', '품목', '계획', '실적', '파지', '수율', '검수', ''].map(h => <Th key={h}>{h}</Th>)}</tr></thead>
+            <thead><tr>{['생산일', '품목', '계획', '실적', '파지', '수율', '검수', '등록', '수정', ''].map(h => <Th key={h}>{h}</Th>)}</tr></thead>
             <tbody>
-              {filtered.map((record, i) => <ProductionRow key={record.id} record={record} index={i} />)}
+              {filtered.map((record, i) => <ProductionRow key={record.id} record={record} index={i} userMap={userMap} />)}
             </tbody>
           </table>
         )}

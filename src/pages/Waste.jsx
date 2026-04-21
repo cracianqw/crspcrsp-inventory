@@ -7,7 +7,7 @@ import {
   Label, Input, SelectInput, Textarea,
   Overlay, ModalHeader, ModalBody, ModalFooter,
   ErrorBox, EmptyState, Spinner, Badge, LotBadge, DateBadge,
-  Th, Td,
+  Th, Td, AuditStamp, useUserMap,
 } from '../components/UI'
 
 const WASTE_TYPES = [
@@ -80,6 +80,7 @@ function WasteModal({ items, productions, onClose, onSave }) {
 }
 
 export default function Waste() {
+  const userMap = useUserMap()
   const [records, setRecords] = useState([])
   const [items, setItems] = useState([])
   const [productions, setProductions] = useState([])
@@ -92,9 +93,9 @@ export default function Waste() {
   async function fetchAll() {
     setLoading(true)
     const [{ data: recs }, { data: its }, { data: prods }] = await Promise.all([
-      supabase.from('waste_records').select('*, items(name)').order('occurred_at', { ascending: false }),
-      supabase.from('items').select('*').eq('is_active', true).order('name'),
-      supabase.from('production_records').select('id, plan_date, items(name)').order('plan_date', { ascending: false }).limit(50),
+      supabase.from('waste_records').select('*, items(name)').is('deleted_at', null).order('occurred_at', { ascending: false }),
+      supabase.from('items').select('*').eq('is_active', true).is('deleted_at', null).order('name'),
+      supabase.from('production_records').select('id, plan_date, items(name)').is('deleted_at', null).order('plan_date', { ascending: false }).limit(50),
     ])
     setRecords(recs || []); setItems(its || []); setProductions(prods || [])
     setLoading(false)
@@ -147,7 +148,7 @@ export default function Waste() {
           <EmptyState icon={Scissors} text="등록된 파지 기록이 없습니다" />
         ) : (
           <table className="w-full">
-            <thead><tr>{['발생일', '품목', '유형', '수량', '발생 사유'].map(h => <Th key={h}>{h}</Th>)}</tr></thead>
+            <thead><tr>{['발생일', '품목', '유형', '수량', '발생 사유', '등록', '수정'].map(h => <Th key={h}>{h}</Th>)}</tr></thead>
             <tbody>
               {filtered.map((r, i) => {
                 const wt = WASTE_TYPES.find(w => w.value === r.waste_type) || WASTE_TYPES[2]
@@ -158,6 +159,8 @@ export default function Waste() {
                     <Td><Badge label={wt.label} color={wt.color} bg={wt.bg} /></Td>
                     <Td><span className="text-lg font-bold text-gray-900">{Number(r.quantity).toLocaleString()}</span></Td>
                     <Td className="text-gray-500 max-w-xs"><span className="truncate block">{r.reason || '—'}</span></Td>
+                    <Td><AuditStamp userName={userMap[r.created_by]} at={r.created_at} /></Td>
+                    <Td><AuditStamp userName={userMap[r.updated_by]} at={r.updated_at} /></Td>
                   </tr>
                 )
               })}

@@ -1,6 +1,42 @@
 // ── Crsp Crsp Design System ─────────────────────────────────────
 // 정확한 스펙: 입력 48px / 버튼 44px / 행 52px / 패딩 기준 준수
+import { useEffect, useState } from 'react'
 import { X, AlertCircle, Check } from 'lucide-react'
+import { supabase } from '../lib/supabase'
+
+// ── 사용자 맵 (id → 이름/아이디) 캐시 ────────────────────────
+let _userMapCache = null
+let _userMapPromise = null
+export function useUserMap() {
+  const [map, setMap] = useState(_userMapCache || {})
+  useEffect(() => {
+    if (_userMapCache) return
+    if (!_userMapPromise) {
+      _userMapPromise = supabase.from('users').select('id, name, email').then(({ data }) => {
+        const m = {}
+        ;(data || []).forEach(u => { m[u.id] = u.name || (u.email ? u.email.split('@')[0] : '—') })
+        _userMapCache = m
+        return m
+      })
+    }
+    _userMapPromise.then(m => setMap(m))
+  }, [])
+  return map
+}
+
+// ── 감사 정보 셀 ─────────────────────────────────────────────
+// { userId, at } 한 쌍 표시 — 예: {홍길동 / 3/15 14:22}
+export function AuditStamp({ userName, at }) {
+  if (!at) return <span style={{ color: '#d1d5db', fontSize: 13 }}>—</span>
+  const d = new Date(at)
+  const dt = `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`
+  return (
+    <div style={{ fontSize: 12, lineHeight: 1.35, whiteSpace: 'nowrap' }}>
+      <div style={{ fontWeight: 600, color: '#374151' }}>{userName || '—'}</div>
+      <div style={{ color: '#9ca3af', marginTop: 1 }}>{dt}</div>
+    </div>
+  )
+}
 
 // ── Form ─────────────────────────────────────────────────────────
 export function Label({ children, required }) {

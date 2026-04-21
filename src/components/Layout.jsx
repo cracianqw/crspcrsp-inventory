@@ -2,7 +2,7 @@ import { NavLink, Outlet } from 'react-router-dom'
 import {
   LayoutDashboard, Package, Building2, PackageOpen,
   Factory, Archive, BarChart3, Truck, Scissors, Users, LogOut,
-  CalendarDays,
+  CalendarDays, Trash2,
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 
@@ -17,10 +17,17 @@ const NAV = [
   { to: '/inventory',  label: '재고 현황',   icon: BarChart3 },
   { to: '/shipping',   label: '출고 관리',   icon: Truck },
   { to: '/waste',      label: '파지 관리',   icon: Scissors },
-  { to: '/users',      label: '사용자 관리', icon: Users },
+  { to: '/users',      label: '사용자 관리', icon: Users, roleMin: 'master' },
+  { to: '/deleted',    label: '삭제 내역',   icon: Trash2, roleMin: 'senior_manager' },
 ]
 
-const ROLE_LABELS = { master: '마스터', manager: '매니저', worker: '작업자' }
+const ROLE_LABELS = {
+  master: '마스터',
+  senior_manager: '시니어 매니저',
+  manager: '매니저',
+  worker: '작업자',
+}
+const ROLE_RANK = { worker: 0, manager: 1, senior_manager: 2, master: 3 }
 
 export default function Layout() {
   const { profile, signOut } = useAuth()
@@ -41,7 +48,7 @@ export default function Layout() {
 
         {/* 내비게이션 */}
         <nav style={{ flex: 1, overflowY: 'auto', padding: '12px 12px' }}>
-          {NAV.map(({ to, label, icon: Icon }) => (
+          {NAV.filter(item => !item.roleMin || (ROLE_RANK[profile?.role] ?? -1) >= ROLE_RANK[item.roleMin]).map(({ to, label, icon: Icon }) => (
             <NavLink key={to} to={to} end={to === '/'}
               style={({ isActive }) => ({
                 display: 'flex', alignItems: 'center', gap: 12,

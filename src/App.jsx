@@ -13,6 +13,7 @@ import Inventory from './pages/Inventory'
 import Shipping from './pages/Shipping'
 import Waste from './pages/Waste'
 import Users from './pages/Users'
+import DeletedItems from './pages/DeletedItems'
 
 function ProtectedLayout() {
   const { user, loading } = useAuth()
@@ -53,6 +54,7 @@ export default function App() {
             <Route path="shipping" element={<Shipping />} />
             <Route path="waste" element={<Waste />} />
             <Route path="users" element={<Users />} />
+            <Route path="deleted" element={<DeletedItems />} />
           </Route>
         </Routes>
       </BrowserRouter>

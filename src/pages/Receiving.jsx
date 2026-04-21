@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { PackageOpen, Search } from 'lucide-react'
-import { StatCard, Card, CardHeader, Btn, RegisterBtn, Label, Input, SelectInput, Textarea, Overlay, ModalHeader, ModalBody, ModalFooter, ErrorBox, EmptyState, Spinner, Th, Td, LotBadge, SearchInput } from '../components/UI'
+import { StatCard, Card, CardHeader, Btn, RegisterBtn, Label, Input, SelectInput, Textarea, Overlay, ModalHeader, ModalBody, ModalFooter, ErrorBox, EmptyState, Spinner, Th, Td, LotBadge, SearchInput, AuditStamp, useUserMap } from '../components/UI'
 
 function ReceivingModal({ rawMaterials, onClose, onSave }) {
   const { user } = useAuth()
@@ -59,7 +59,9 @@ function ReceivingModal({ rawMaterials, onClose, onSave }) {
 }
 
 export default function Receiving() {
+  const userMap = useUserMap()
   const [lots, setLots] = useState([])
+  const [audit, setAudit] = useState({}) // {lot_id: {created_by, created_at, updated_by, updated_at}}
   const [rawMaterials, setRawMaterials] = useState([])
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
@@ -69,11 +71,14 @@ export default function Receiving() {
 
   async function fetchAll() {
     setLoading(true)
-    const [{ data: ls }, { data: rms }] = await Promise.all([
+    const [{ data: ls }, { data: lotRaw }, { data: rms }] = await Promise.all([
       supabase.from('raw_material_stock').select('*').order('received_at', { ascending: false }),
-      supabase.from('raw_materials').select('*').order('name'),
+      supabase.from('receiving_lots').select('id, created_by, created_at, updated_by, updated_at').is('deleted_at', null),
+      supabase.from('raw_materials').select('*').is('deleted_at', null).order('name'),
     ])
-    setLots(ls || []); setRawMaterials(rms || [])
+    const a = {}
+    ;(lotRaw || []).forEach(r => { a[r.id] = r })
+    setLots(ls || []); setAudit(a); setRawMaterials(rms || [])
     setLoading(false)
   }
 
@@ -111,7 +116,7 @@ export default function Receiving() {
           <EmptyState icon={PackageOpen} text={search ? '검색 결과가 없습니다' : '등록된 입고 이력이 없습니다'} />
         ) : (
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead><tr>{['LOT 번호', '원자재', '입고일', '입고량', '잔여량 / 사용률', '공급업체'].map(h => <Th key={h}>{h}</Th>)}</tr></thead>
+            <thead><tr>{['LOT 번호', '원자재', '입고일', '입고량', '잔여량 / 사용률', '공급업체', '등록', '수정'].map(h => <Th key={h}>{h}</Th>)}</tr></thead>
             <tbody>
               {filtered.map((lot, i) => {
                 const remaining = Number(lot.remaining_qty) || 0
@@ -138,6 +143,8 @@ export default function Receiving() {
                       </div>
                     </Td>
                     <Td style={{ color: '#6b7280' }}>{lot.supplier_name || '—'}</Td>
+                    <Td><AuditStamp userName={userMap[audit[lot.id]?.created_by]} at={audit[lot.id]?.created_at} /></Td>
+                    <Td><AuditStamp userName={userMap[audit[lot.id]?.updated_by]} at={audit[lot.id]?.updated_at} /></Td>
                   </tr>
                 )
               })}

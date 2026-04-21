@@ -7,6 +7,7 @@ import {
   Label, Input, SelectInput, Textarea,
   Overlay, ModalHeader, ModalBody, ModalFooter,
   ErrorBox, EmptyState, Spinner, Badge, LotBadge,
+  AuditStamp, useUserMap,
 } from '../components/UI'
 
 function genBatch() {
@@ -112,6 +113,7 @@ function PackagingModal({ items, productions, onClose, onSave }) {
 }
 
 export default function Packaging() {
+  const userMap = useUserMap()
   const [records, setRecords] = useState([])
   const [items, setItems] = useState([])
   const [productions, setProductions] = useState([])
@@ -124,16 +126,21 @@ export default function Packaging() {
   async function fetchAll() {
     setLoading(true)
     const [{ data: recs }, { data: its }, { data: prods }] = await Promise.all([
-      supabase.from('packaging_records').select('*, items(name, code)').order('packaged_at', { ascending: false }),
-      supabase.from('items').select('*').eq('is_active', true).order('name'),
-      supabase.from('production_records').select('id, plan_date, items(name)').order('plan_date', { ascending: false }).limit(50),
+      supabase.from('packaging_records').select('*, items(name, code)').is('deleted_at', null).order('packaged_at', { ascending: false }),
+      supabase.from('items').select('*').eq('is_active', true).is('deleted_at', null).order('name'),
+      supabase.from('production_records').select('id, plan_date, items(name)').is('deleted_at', null).order('plan_date', { ascending: false }).limit(50),
     ])
     setRecords(recs || []); setItems(its || []); setProductions(prods || [])
     setLoading(false)
   }
 
   const grouped = records.reduce((acc, r) => {
-    if (!acc[r.batch_number]) acc[r.batch_number] = { batch_number: r.batch_number, item: r.items, packaged_at: r.packaged_at, rows: [] }
+    if (!acc[r.batch_number]) acc[r.batch_number] = {
+      batch_number: r.batch_number, item: r.items, packaged_at: r.packaged_at,
+      created_by: r.created_by, created_at: r.created_at,
+      updated_by: r.updated_by, updated_at: r.updated_at,
+      rows: [],
+    }
     acc[r.batch_number].rows.push(r)
     return acc
   }, {})
@@ -178,6 +185,14 @@ export default function Packaging() {
                     <div className="text-right">
                       <p className="text-base font-bold text-gray-900">{totalQty.toLocaleString()} <span className="text-sm font-normal text-gray-400">박스</span></p>
                       <p className="text-xs text-gray-400 mt-0.5">{batch.packaged_at ? new Date(batch.packaged_at).toLocaleDateString('ko-KR') : '—'}</p>
+                    </div>
+                    <div style={{ minWidth: 110, borderLeft: '1px solid #f3f4f6', paddingLeft: 16 }}>
+                      <div style={{ fontSize: 11, color: '#9ca3af', marginBottom: 2 }}>등록</div>
+                      <AuditStamp userName={userMap[batch.created_by]} at={batch.created_at} />
+                    </div>
+                    <div style={{ minWidth: 110, borderLeft: '1px solid #f3f4f6', paddingLeft: 16 }}>
+                      <div style={{ fontSize: 11, color: '#9ca3af', marginBottom: 2 }}>수정</div>
+                      <AuditStamp userName={userMap[batch.updated_by]} at={batch.updated_at} />
                     </div>
                     {isOpen ? <ChevronUp size={16} className="text-gray-400 flex-shrink-0" /> : <ChevronDown size={16} className="text-gray-400 flex-shrink-0" />}
                   </div>

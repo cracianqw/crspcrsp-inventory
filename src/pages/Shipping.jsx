@@ -6,7 +6,7 @@ import {
   Card, CardHeader, Btn, RegisterBtn,
   Label, Input, SelectInput, Textarea,
   ErrorBox, EmptyState, Spinner, Badge, LotBadge, DateBadge,
-  Th, Td,
+  Th, Td, AuditStamp, useUserMap,
 } from '../components/UI'
 
 const STATUS = {
@@ -145,7 +145,7 @@ function ShippingModal({ partners, items, stock, onClose, onSave }) {
   )
 }
 
-function OrderRow({ order, index, onStatusChange }) {
+function OrderRow({ order, index, onStatusChange, userMap }) {
   const [open, setOpen] = useState(false)
   const [items, setItems] = useState([])
   const st = STATUS[order.status] || STATUS.pending
@@ -171,11 +171,13 @@ function OrderRow({ order, index, onStatusChange }) {
             {Object.entries(STATUS).map(([val, s]) => <option key={val} value={val}>{s.label}</option>)}
           </select>
         </Td>
+        <Td><AuditStamp userName={userMap[order.created_by]} at={order.created_at} /></Td>
+        <Td><AuditStamp userName={userMap[order.updated_by]} at={order.updated_at} /></Td>
         <Td>{open ? <ChevronUp size={15} className="text-gray-400" /> : <ChevronDown size={15} className="text-gray-400" />}</Td>
       </tr>
       {open && (
         <tr>
-          <td colSpan={5} className="px-8 py-5 bg-gray-50/50" style={{ borderBottom: '1px solid #f9fafb' }}>
+          <td colSpan={7} className="px-8 py-5 bg-gray-50/50" style={{ borderBottom: '1px solid #f9fafb' }}>
             {items.length === 0 ? <p className="text-sm text-gray-400">품목 정보 없음</p> : (
               <>
                 <table className="w-full text-sm">
@@ -209,6 +211,7 @@ function OrderRow({ order, index, onStatusChange }) {
 }
 
 export default function Shipping() {
+  const userMap = useUserMap()
   const [orders, setOrders] = useState([])
   const [partners, setPartners] = useState([])
   const [items, setItems] = useState([])
@@ -222,9 +225,9 @@ export default function Shipping() {
   async function fetchAll() {
     setLoading(true)
     const [{ data: ords }, { data: pts }, { data: its }, { data: st }] = await Promise.all([
-      supabase.from('shipping_orders').select('*, partners(name)').order('order_date', { ascending: false }),
-      supabase.from('partners').select('*').in('type', ['customer', 'both']).order('name'),
-      supabase.from('items').select('*').eq('is_active', true).order('name'),
+      supabase.from('shipping_orders').select('*, partners(name)').is('deleted_at', null).order('order_date', { ascending: false }),
+      supabase.from('partners').select('*').in('type', ['customer', 'both']).is('deleted_at', null).order('name'),
+      supabase.from('items').select('*').eq('is_active', true).is('deleted_at', null).order('name'),
       supabase.from('finished_goods_stock').select('*').gt('quantity', 0),
     ])
     setOrders(ords || []); setPartners(pts || []); setItems(its || []); setStock(st || [])
@@ -273,9 +276,9 @@ export default function Shipping() {
           <EmptyState icon={Truck} text="출고 이력이 없습니다" />
         ) : (
           <table className="w-full">
-            <thead><tr>{['출고일', '거래처', '메모', '상태', ''].map(h => <Th key={h}>{h}</Th>)}</tr></thead>
+            <thead><tr>{['출고일', '거래처', '메모', '상태', '등록', '수정', ''].map(h => <Th key={h}>{h}</Th>)}</tr></thead>
             <tbody>
-              {filtered.map((order, i) => <OrderRow key={order.id} order={order} index={i} onStatusChange={handleStatusChange} />)}
+              {filtered.map((order, i) => <OrderRow key={order.id} order={order} index={i} onStatusChange={handleStatusChange} userMap={userMap} />)}
             </tbody>
           </table>
         )}
