@@ -322,7 +322,7 @@ export default function Production() {
         <RegisterBtn onClick={() => setShowModal(true)}>생산 기록 등록</RegisterBtn>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 24 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16, marginBottom: 24 }}>
         <StatCard label="전체 기록" value={records.length} unit="건" />
         <StatCard label="총 생산량" value={totalActual.toLocaleString()} unit="박스" />
         <StatCard label="평균 수율" value={avgYield ?? '—'} unit={avgYield ? '%' : ''} />
@@ -340,12 +340,12 @@ export default function Production() {
         ) : filtered.length === 0 ? (
           <EmptyState icon={Factory} text={search ? '검색 결과가 없습니다' : '등록된 생산 기록이 없습니다'} />
         ) : (
-          <table className="w-full">
+          <div className="tbl-wrap"><table className="w-full">
             <thead><tr>{['생산일', '품목', '계획', '실적', '파지', '수율', '검수', '등록', '수정', ''].map(h => <Th key={h}>{h}</Th>)}</tr></thead>
             <tbody>
               {filtered.map((record, i) => <ProductionRow key={record.id} record={record} index={i} userMap={userMap} />)}
             </tbody>
-          </table>
+          </table></div>
         )}
       </Card>
 

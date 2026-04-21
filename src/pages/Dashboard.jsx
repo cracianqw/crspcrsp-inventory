@@ -96,7 +96,7 @@ export default function Dashboard() {
       <PageHeader title="대시보드" sub={today} />
 
       {/* 상단 카드 */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
 
         {/* 날씨 + 기상 경보 */}
         <Card>
@@ -210,7 +210,7 @@ export default function Dashboard() {
         {plans.length === 0 ? (
           <EmptyState icon={Calendar} text="이번 주 생산 계획이 없습니다" />
         ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <div className="tbl-wrap"><table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr>
                 {['품목명', '코드', '계획 수량'].map(h => (
@@ -229,7 +229,7 @@ export default function Dashboard() {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table></div>
         )}
       </Card>
 
@@ -237,7 +237,7 @@ export default function Dashboard() {
       {inventory.length > 0 && (
         <div>
           <h2 style={{ fontSize: 16, fontWeight: 600, color: '#111827', marginBottom: 16 }}>재고 현황</h2>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
             {inventory.map(item => {
               const diff = item.nearest_expiry ? Math.ceil((new Date(item.nearest_expiry) - new Date()) / 86400000) : null
               const urgent = diff !== null && diff <= 7

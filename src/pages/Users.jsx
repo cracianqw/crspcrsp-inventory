@@ -210,7 +210,7 @@ export default function Users() {
         <RegisterBtn onClick={() => setModal('new')}>사용자 추가</RegisterBtn>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 16, marginBottom: 24 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 16, marginBottom: 24 }}>
         <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e9ecef', boxShadow: '0 4px 12px rgba(0,0,0,0.06)', padding: 24 }}>
           <p style={{ fontSize: 14, color: '#6b7280', marginBottom: 14, fontWeight: 500 }}>전체</p>
           <p style={{ fontSize: 40, fontWeight: 700, color: '#111827', lineHeight: 1.1 }}>{users.length}</p>

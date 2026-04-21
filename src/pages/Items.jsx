@@ -406,6 +406,7 @@ export default function Items() {
           <div style={{ padding: '72px 0', display: 'flex', justifyContent: 'center' }}><Spinner /></div>
         ) : tab === 'items' ? (
           filtered.length === 0 ? <EmptyState icon={Package} text={activeFilter === 'inactive' ? '생산중지 품목이 없습니다' : '등록된 완성품이 없습니다'} /> : (
+            <div className="tbl-wrap">
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead><tr>{['코드', '품명', '카테고리', '단위', '중량(g)', '매수', '포장', '장당원초', '소비기한', '상태', canEditRow ? '관리' : ''].map(h => <Th key={h}>{h}</Th>)}</tr></thead>
               <tbody>
@@ -453,9 +454,11 @@ export default function Items() {
                 })}
               </tbody>
             </table>
+            </div>
           )
         ) : (
           rawMaterials.length === 0 ? <EmptyState icon={Wheat} text="등록된 원자재가 없습니다" /> : (
+            <div className="tbl-wrap">
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead><tr>{['코드', '원자재명', '단위', canEditRow ? '관리' : ''].map(h => <Th key={h}>{h}</Th>)}</tr></thead>
               <tbody>
@@ -476,6 +479,7 @@ export default function Items() {
                 ))}
               </tbody>
             </table>
+            </div>
           )
         )}
       </Card>

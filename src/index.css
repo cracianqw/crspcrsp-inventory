@@ -29,3 +29,23 @@ input[type='date']::-webkit-calendar-picker-indicator { opacity: 0.5; cursor: po
 p, span, td, th, li, label, input, select, textarea, button {
   font-size: inherit;
 }
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* 테이블 가로 스크롤 래퍼 (모바일 대응) */
+.tbl-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.tbl-wrap > table {
+  min-width: 100%;
+  width: max-content;
+}
+
+/* 모바일 전용 조정 */
+@media (max-width: 768px) {
+  body { font-size: 14px; }
+  h1 { font-size: 22px !important; line-height: 1.25 !important; }
+  /* 탭/필터 버튼 줄바꿈 허용 */
+  .tbl-wrap > table th, .tbl-wrap > table td { white-space: nowrap; }
+}

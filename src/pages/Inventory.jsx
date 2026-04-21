@@ -40,7 +40,7 @@ export default function Inventory() {
         <Btn variant="secondary" onClick={fetchAll}><RefreshCw size={18} /> 새로고침</Btn>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 24 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16, marginBottom: 24 }}>
         <StatCard label="완제품 재고" value={totalFinished.toLocaleString()} unit="박스" sub={`${summary.length}종`} />
         <StatCard label="원재료 잔여량" value={totalRaw.toFixed(1)} sub="통합 잔여" />
         <StatCard label="소비기한 임박" value={soonExpiry.length} unit="건" sub="7일 이내" alert={soonExpiry.length > 0} />
@@ -79,7 +79,7 @@ export default function Inventory() {
 function FinishedTable({ data }) {
   if (data.length === 0) return <EmptyState icon={Package} text="완제품 재고가 없습니다" />
   return (
-    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+    <div className="tbl-wrap"><table style={{ width: '100%', borderCollapse: 'collapse' }}>
       <thead><tr>{['배치번호', '품목', '수량', '소비기한', 'D-Day'].map(h => <Th key={h}>{h}</Th>)}</tr></thead>
       <tbody>
         {data.map((r, i) => {
@@ -97,14 +97,14 @@ function FinishedTable({ data }) {
           )
         })}
       </tbody>
-    </table>
+    </table></div>
   )
 }
 
 function RawTable({ data }) {
   if (data.length === 0) return <EmptyState icon={Wheat} text="원재료 재고가 없습니다" />
   return (
-    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+    <div className="tbl-wrap"><table style={{ width: '100%', borderCollapse: 'collapse' }}>
       <thead><tr>{['LOT 번호', '원자재', '입고량', '잔여량', '사용률', '공급업체', '입고일'].map(h => <Th key={h}>{h}</Th>)}</tr></thead>
       <tbody>
         {data.map((r, i) => {
@@ -128,14 +128,14 @@ function RawTable({ data }) {
           )
         })}
       </tbody>
-    </table>
+    </table></div>
   )
 }
 
 function SummaryTable({ data }) {
   if (data.length === 0) return <EmptyState icon={BarChart3} text="재고 정보가 없습니다" />
   return (
-    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+    <div className="tbl-wrap"><table style={{ width: '100%', borderCollapse: 'collapse' }}>
       <thead><tr>{['품목명', '코드', '총 재고', '배치 수', '가장 빠른 소비기한'].map(h => <Th key={h}>{h}</Th>)}</tr></thead>
       <tbody>
         {data.map((r, i) => (
@@ -148,6 +148,6 @@ function SummaryTable({ data }) {
           </tr>
         ))}
       </tbody>
-    </table>
+    </table></div>
   )
 }

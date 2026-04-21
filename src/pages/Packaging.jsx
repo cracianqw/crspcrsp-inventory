@@ -153,7 +153,7 @@ export default function Packaging() {
         <RegisterBtn onClick={() => setShowModal(true)}>포장 등록</RegisterBtn>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, marginBottom: 24 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16, marginBottom: 24 }}>
         <StatCard label="전체 배치" value={batches.length} unit="건" />
         <StatCard label="총 포장수량" value={records.reduce((s, r) => s + (Number(r.quantity) || 0), 0).toLocaleString()} unit="박스" />
         <StatCard label="소비기한 혼재 배치" value={Object.values(grouped).filter(b => b.rows.length > 1).length} unit="건" />

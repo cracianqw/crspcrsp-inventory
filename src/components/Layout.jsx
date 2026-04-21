@@ -1,8 +1,9 @@
-import { NavLink, Outlet } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, Package, Building2, PackageOpen,
   Factory, Archive, BarChart3, Truck, Scissors, Users, LogOut,
-  CalendarDays, Trash2,
+  CalendarDays, Trash2, Menu, X,
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 
@@ -29,21 +30,123 @@ const ROLE_LABELS = {
 }
 const ROLE_RANK = { worker: 0, manager: 1, senior_manager: 2, master: 3 }
 
+const MOBILE_BP = 768
+const TOPBAR_HEIGHT = 56
+
 export default function Layout() {
   const { profile, signOut } = useAuth()
+  const location = useLocation()
+  const [isMobile, setIsMobile] = useState(() =>
+    typeof window !== 'undefined' ? window.innerWidth <= MOBILE_BP : false
+  )
+  const [drawerOpen, setDrawerOpen] = useState(false)
+
+  // 뷰포트 변경 감지
+  useEffect(() => {
+    const mq = window.matchMedia(`(max-width: ${MOBILE_BP}px)`)
+    const handle = e => setIsMobile(e.matches)
+    handle(mq)
+    mq.addEventListener('change', handle)
+    return () => mq.removeEventListener('change', handle)
+  }, [])
+
+  // 경로 변경 시 드로어 자동 닫힘
+  useEffect(() => { setDrawerOpen(false) }, [location.pathname])
+
+  // 드로어 열렸을 때 body 스크롤 잠금
+  useEffect(() => {
+    if (isMobile && drawerOpen) {
+      const prev = document.body.style.overflow
+      document.body.style.overflow = 'hidden'
+      return () => { document.body.style.overflow = prev }
+    }
+  }, [isMobile, drawerOpen])
+
+  const sidebarVisible = !isMobile || drawerOpen
 
   return (
-    <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
+    <div style={{
+      display: 'flex',
+      height: '100vh',
+      overflow: 'hidden',
+      position: 'relative',
+    }}>
 
-      {/* ── 사이드바 ── */}
-      <aside style={{ width: 260, flexShrink: 0, display: 'flex', flexDirection: 'column', backgroundColor: '#004634', overflow: 'hidden' }}>
+      {/* 모바일 상단바 */}
+      {isMobile && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, height: TOPBAR_HEIGHT,
+          background: '#004634', display: 'flex', alignItems: 'center',
+          padding: '0 16px', gap: 12, zIndex: 30,
+          boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+        }}>
+          <button onClick={() => setDrawerOpen(v => !v)}
+            aria-label="메뉴"
+            style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              width: 40, height: 40, border: 'none', borderRadius: 8,
+              background: 'rgba(255,255,255,0.1)', color: '#fff',
+              cursor: 'pointer',
+            }}>
+            {drawerOpen ? <X size={22} /> : <Menu size={22} />}
+          </button>
+          <div style={{ display: 'flex', flexDirection: 'column' }}>
+            <span style={{ color: '#fff', fontSize: 16, fontWeight: 900, letterSpacing: '0.1em', lineHeight: 1 }}>CRSP CRSP</span>
+            <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: 10, letterSpacing: '0.08em', marginTop: 3 }}>생산·재고 관리</span>
+          </div>
+        </div>
+      )}
 
-        {/* 로고 */}
-        <div style={{ padding: '28px 24px 24px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-          <p style={{ color: '#ffffff', fontSize: 20, fontWeight: 900, letterSpacing: '0.12em' }}>CRSP CRSP</p>
-          <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: 11, marginTop: 4, letterSpacing: '0.1em' }}>
-            생산·재고 관리 시스템
-          </p>
+      {/* 모바일 오버레이 */}
+      {isMobile && drawerOpen && (
+        <div onClick={() => setDrawerOpen(false)}
+          style={{
+            position: 'fixed', inset: 0, zIndex: 40,
+            background: 'rgba(0,0,0,0.5)',
+            transition: 'opacity 0.2s',
+          }} />
+      )}
+
+      {/* 사이드바 */}
+      <aside style={{
+        width: 260,
+        display: 'flex', flexDirection: 'column',
+        backgroundColor: '#004634', overflow: 'hidden',
+        ...(isMobile ? {
+          position: 'fixed', top: 0, bottom: 0,
+          left: drawerOpen ? 0 : -280,
+          transition: 'left 0.25s ease',
+          zIndex: 50,
+          boxShadow: drawerOpen ? '2px 0 24px rgba(0,0,0,0.25)' : 'none',
+        } : {
+          flexShrink: 0,
+          position: 'relative',
+        }),
+      }}>
+
+        {/* 로고 — 모바일에서는 축소 */}
+        <div style={{
+          padding: isMobile ? '20px 20px 16px' : '28px 24px 24px',
+          borderBottom: '1px solid rgba(255,255,255,0.08)',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        }}>
+          <div>
+            <p style={{ color: '#ffffff', fontSize: 20, fontWeight: 900, letterSpacing: '0.12em' }}>CRSP CRSP</p>
+            <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: 11, marginTop: 4, letterSpacing: '0.1em' }}>
+              생산·재고 관리 시스템
+            </p>
+          </div>
+          {isMobile && (
+            <button onClick={() => setDrawerOpen(false)} aria-label="닫기"
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                width: 36, height: 36, border: 'none', borderRadius: 8,
+                background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.7)',
+                cursor: 'pointer',
+              }}>
+              <X size={18} />
+            </button>
+          )}
         </div>
 
         {/* 내비게이션 */}
@@ -60,7 +163,7 @@ export default function Layout() {
                 textDecoration: 'none', transition: 'all 0.15s',
               })}
               onMouseEnter={e => { if (!e.currentTarget.classList.contains('active')) { e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.07)'; e.currentTarget.style.color = 'rgba(255,255,255,0.8)' } }}
-              onMouseLeave={e => { /* let NavLink handle active state */ }}
+              onMouseLeave={() => {}}
             >
               {({ isActive }) => (
                 <>
@@ -98,9 +201,19 @@ export default function Layout() {
         </div>
       </aside>
 
-      {/* ── 메인 콘텐츠 ── */}
-      <main style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', backgroundColor: '#eee8db' }}>
-        <div style={{ flex: 1, overflowY: 'auto', padding: 32 }}>
+      {/* 메인 콘텐츠 */}
+      <main style={{
+        flex: 1,
+        display: 'flex', flexDirection: 'column',
+        overflow: 'hidden',
+        backgroundColor: '#eee8db',
+        paddingTop: isMobile ? TOPBAR_HEIGHT : 0,
+        width: '100%',
+      }}>
+        <div style={{
+          flex: 1, overflowY: 'auto',
+          padding: isMobile ? '16px 16px 32px' : 32,
+        }}>
           <Outlet />
         </div>
       </main>

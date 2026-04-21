@@ -98,7 +98,7 @@ export default function Receiving() {
         <RegisterBtn onClick={() => setShowModal(true)}>입고 등록</RegisterBtn>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, marginBottom: 24 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16, marginBottom: 24 }}>
         <StatCard label="전체 LOT" value={lots.length} unit="건" />
         <StatCard label="총 입고량" value={totalReceived.toLocaleString()} sub="입고 누계" />
         <StatCard label="총 잔여량" value={totalRemaining.toFixed(1)} sub="현재 재고" />
@@ -115,7 +115,7 @@ export default function Receiving() {
         ) : filtered.length === 0 ? (
           <EmptyState icon={PackageOpen} text={search ? '검색 결과가 없습니다' : '등록된 입고 이력이 없습니다'} />
         ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <div className="tbl-wrap"><table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead><tr>{['LOT 번호', '원자재', '입고일', '입고량', '잔여량 / 사용률', '공급업체', '등록', '수정'].map(h => <Th key={h}>{h}</Th>)}</tr></thead>
             <tbody>
               {filtered.map((lot, i) => {
@@ -149,7 +149,7 @@ export default function Receiving() {
                 )
               })}
             </tbody>
-          </table>
+          </table></div>
         )}
       </Card>
 

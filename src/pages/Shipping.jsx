@@ -249,7 +249,7 @@ export default function Shipping() {
         <RegisterBtn onClick={() => setShowModal(true)}>출고 등록</RegisterBtn>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 24 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16, marginBottom: 24 }}>
         {[{ key: 'all', label: '전체' }, { key: 'pending', label: '대기중' }, { key: 'shipped', label: '출고완료' }, { key: 'delivered', label: '납품완료' }].map(({ key, label }) => {
           const active = statusFilter === key
           const st = key !== 'all' ? STATUS[key] : null
@@ -275,12 +275,12 @@ export default function Shipping() {
         ) : filtered.length === 0 ? (
           <EmptyState icon={Truck} text="출고 이력이 없습니다" />
         ) : (
-          <table className="w-full">
+          <div className="tbl-wrap"><table className="w-full">
             <thead><tr>{['출고일', '거래처', '메모', '상태', '등록', '수정', ''].map(h => <Th key={h}>{h}</Th>)}</tr></thead>
             <tbody>
               {filtered.map((order, i) => <OrderRow key={order.id} order={order} index={i} onStatusChange={handleStatusChange} userMap={userMap} />)}
             </tbody>
-          </table>
+          </table></div>
         )}
       </Card>
 

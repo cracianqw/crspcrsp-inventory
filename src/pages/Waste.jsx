@@ -112,7 +112,7 @@ export default function Waste() {
         <RegisterBtn onClick={() => setShowModal(true)}>파지 등록</RegisterBtn>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 24 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16, marginBottom: 24 }}>
         <button onClick={() => setTypeFilter('all')}
           style={{
             background: '#ffffff', borderRadius: 12, padding: 24, textAlign: 'left',
@@ -147,7 +147,7 @@ export default function Waste() {
         ) : filtered.length === 0 ? (
           <EmptyState icon={Scissors} text="등록된 파지 기록이 없습니다" />
         ) : (
-          <table className="w-full">
+          <div className="tbl-wrap"><table className="w-full">
             <thead><tr>{['발생일', '품목', '유형', '수량', '발생 사유', '등록', '수정'].map(h => <Th key={h}>{h}</Th>)}</tr></thead>
             <tbody>
               {filtered.map((r, i) => {
@@ -165,7 +165,7 @@ export default function Waste() {
                 )
               })}
             </tbody>
-          </table>
+          </table></div>
         )}
       </Card>
 

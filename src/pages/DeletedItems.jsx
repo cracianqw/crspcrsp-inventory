@@ -207,6 +207,7 @@ export default function DeletedItems() {
         ) : rows.length === 0 ? (
           <EmptyState icon={Trash2} text={`삭제된 ${mod.label} 항목이 없습니다`} />
         ) : (
+          <div className="tbl-wrap">
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr>
@@ -261,6 +262,7 @@ export default function DeletedItems() {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </Card>
     </div>

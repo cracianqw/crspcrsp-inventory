@@ -207,7 +207,7 @@ export default function ProductionPlan() {
       </div>
 
       {/* 요약 카드 */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 24 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16, marginBottom: 24 }}>
         <StatCard label="이번 주 계획 총량" value={planTotal.toLocaleString()} unit="박스" />
         <StatCard label="이번 주 실적 누계" value={actualTotal.toLocaleString()} unit="박스" />
         <div style={{
@@ -235,7 +235,7 @@ export default function ProductionPlan() {
         ) : items.length === 0 ? (
           <EmptyState icon={Calendar} text="활성 품목이 없습니다" />
         ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <div className="tbl-wrap"><table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead><tr>{['품목', '코드', '규격', '박스당 장수', `계획 (${mode === 'sheets' ? '장' : '박스'})`, '변환 표시'].map(h => <Th key={h}>{h}</Th>)}</tr></thead>
             <tbody>
               {items.map((it, i) => {
@@ -285,7 +285,7 @@ export default function ProductionPlan() {
                 )
               })}
             </tbody>
-          </table>
+          </table></div>
         )}
       </Card>
 
@@ -296,7 +296,7 @@ export default function ProductionPlan() {
           {loading ? (
             <div style={{ padding: '72px 0', display: 'flex', justifyContent: 'center' }}><Spinner /></div>
           ) : (
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <div className="tbl-wrap"><table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr>
                   <Th>품목</Th>
@@ -348,7 +348,7 @@ export default function ProductionPlan() {
                   </Td>
                 </tr>
               </tbody>
-            </table>
+            </table></div>
           )}
         </Card>
       </div>
@@ -362,7 +362,7 @@ export default function ProductionPlan() {
           ) : items.length === 0 ? (
             <EmptyState icon={Calendar} text="품목이 없습니다" />
           ) : (
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <div className="tbl-wrap"><table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead><tr>{['품목', '코드', '계획 (박스)', '실적 (박스)', '달성률', '상태'].map(h => <Th key={h}>{h}</Th>)}</tr></thead>
               <tbody>
                 {items.map((it, i) => {
@@ -396,7 +396,7 @@ export default function ProductionPlan() {
                   )
                 })}
               </tbody>
-            </table>
+            </table></div>
           )}
         </Card>
       </div>
