@@ -170,29 +170,28 @@ export default function Dashboard() {
                       </span>
                     </div>
                   ))}
-                  <span style={{ fontSize: 12, color: '#9ca3af', marginTop: 4 }}>
-                    ↑{weather.max}° ↓{weather.min}°
-                  </span>
-                </div>
-
-                {/* 단계 범례 */}
-                <div style={{
-                  display: 'flex', gap: 14, flexWrap: 'wrap',
-                  marginTop: 12, paddingTop: 10,
-                  borderTop: '1px dashed #e5e7eb',
-                }}>
-                  {[0, 1, 2, 3].map(lv => (
-                    <span key={lv} style={{
-                      display: 'inline-flex', alignItems: 'center', gap: 5,
-                      fontSize: 11, fontWeight: 600, color: '#6b7280',
-                    }}>
-                      <span style={{
-                        width: 9, height: 9, borderRadius: '50%',
-                        background: ALERT[lv].color,
-                      }} />
-                      {ALERT[lv].label}
+                  <div style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    gap: 12, marginTop: 4, flexWrap: 'wrap',
+                  }}>
+                    <span style={{ fontSize: 12, color: '#9ca3af' }}>
+                      ↑{weather.max}° ↓{weather.min}°
                     </span>
-                  ))}
+                    <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                      {[0, 1, 2, 3].map(lv => (
+                        <span key={lv} style={{
+                          display: 'inline-flex', alignItems: 'center', gap: 4,
+                          fontSize: 11, fontWeight: 600, color: '#6b7280',
+                        }}>
+                          <span style={{
+                            width: 8, height: 8, borderRadius: '50%',
+                            background: ALERT[lv].color,
+                          }} />
+                          {ALERT[lv].label}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               </>
             ) : <p style={{ fontSize: 14, color: '#9ca3af' }}>날씨 정보를 불러올 수 없습니다</p>}
