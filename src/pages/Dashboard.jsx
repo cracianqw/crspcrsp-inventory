@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { Cloud, Wind, Droplets, Thermometer, AlertTriangle, Package, Calendar, Target } from 'lucide-react'
+import { Cloud, Wind, Droplets, Thermometer, AlertTriangle, CheckCircle2, Package, Calendar, Target } from 'lucide-react'
 import { PageHeader, StatCard, Card, CardHeader, EmptyState, Spinner, LotBadge, Badge } from '../components/UI'
 
 const WMO = {
@@ -146,15 +146,14 @@ export default function Dashboard() {
                   ].map((m, i) => (
                     <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                       <MetricPill icon={m.Icon} value={m.value} level={m.lv} />
-                      {m.lv.msg && (
-                        <span style={{
-                          display: 'inline-flex', alignItems: 'center', gap: 4,
-                          fontSize: 12, fontWeight: 600,
-                          color: ALERT[m.lv.level].color,
-                        }}>
-                          <AlertTriangle size={12} />{m.lv.msg}
-                        </span>
-                      )}
+                      <span style={{
+                        display: 'inline-flex', alignItems: 'center', gap: 4,
+                        fontSize: 12, fontWeight: 600,
+                        color: ALERT[m.lv.level].color,
+                      }}>
+                        {m.lv.msg ? <AlertTriangle size={12} /> : <CheckCircle2 size={12} />}
+                        {m.lv.msg || '양호'}
+                      </span>
                     </div>
                   ))}
                   <span style={{ fontSize: 12, color: '#9ca3af', marginTop: 4 }}>
