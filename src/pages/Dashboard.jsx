@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { Cloud, Wind, Droplets, Thermometer, AlertTriangle, CheckCircle2, Package, Calendar, Target } from 'lucide-react'
-import { PageHeader, StatCard, Card, CardHeader, EmptyState, Spinner, LotBadge, Badge } from '../components/UI'
+import { Cloud, Wind, Droplets, Thermometer, AlertTriangle, CheckCircle2, Package, Calendar, Target, Truck } from 'lucide-react'
+import { PageHeader, StatCard, Card, CardHeader, EmptyState, Spinner, LotBadge, Badge, Th, Td, DateBadge } from '../components/UI'
 
 const WMO = {
   0: { label: '맑음', emoji: '☀️' }, 1: { label: '대체로 맑음', emoji: '🌤️' },
@@ -65,6 +65,7 @@ export default function Dashboard() {
   const [plans, setPlans] = useState([])
   const [actuals, setActuals] = useState([])
   const [inventory, setInventory] = useState([])
+  const [shipPlans, setShipPlans] = useState([])
   const week = getWeek()
   const today = new Date().toLocaleDateString('ko-KR', { year:'numeric', month:'long', day:'numeric', weekday:'long' })
 
@@ -76,6 +77,16 @@ export default function Dashboard() {
     supabase.from('weekly_plans').select('*, items(name, code)').gte('week_start', week.start).lte('week_start', week.end).then(({ data }) => setPlans(data || []))
     supabase.from('production_records').select('item_id, output_qty').gte('production_date', week.start).lte('production_date', week.end).then(({ data }) => setActuals(data || []))
     supabase.from('inventory_summary').select('*').order('item_name').then(({ data }) => setInventory(data || []))
+    // 출고 예정 7일 이내
+    const today = new Date(); today.setHours(0,0,0,0)
+    const until = new Date(today); until.setDate(until.getDate() + 7)
+    const iso = d => d.toISOString().split('T')[0]
+    supabase.from('shipping_plans')
+      .select('planned_date, quantity, status, manager, partners(name), items(name, code)')
+      .is('deleted_at', null)
+      .gte('planned_date', iso(today)).lte('planned_date', iso(until))
+      .order('planned_date')
+      .then(({ data }) => setShipPlans(data || []))
   }, [])
 
   const wmo = weather ? (WMO[weather.code] ?? { label: '알 수 없음', emoji: '🌡️' }) : null
@@ -276,6 +287,49 @@ export default function Dashboard() {
                   </td>
                 </tr>
               ))}
+            </tbody>
+          </table></div>
+        )}
+      </Card>
+
+      {/* 출고 예정 (7일 이내) */}
+      <Card>
+        <CardHeader title="출고 예정 (7일 이내)"
+          action={<Badge label={`${shipPlans.length}건`} color="#6b7280" bg="#f3f4f6" />} />
+        {shipPlans.length === 0 ? (
+          <EmptyState icon={Truck} text="7일 이내 출고 예정이 없습니다" />
+        ) : (
+          <div className="tbl-wrap"><table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead><tr>{['예정일', 'D-Day', '거래처', '품목', '수량', '담당자'].map(h => <Th key={h}>{h}</Th>)}</tr></thead>
+            <tbody>
+              {shipPlans.map((p, i) => {
+                const d = new Date(p.planned_date)
+                const today0 = new Date(); today0.setHours(0,0,0,0)
+                const diff = Math.ceil((d - today0) / 86400000)
+                const urgent = diff <= 1
+                return (
+                  <tr key={`${p.planned_date}-${i}`} style={{ backgroundColor: i % 2 === 0 ? '#fff' : '#fafafa' }}>
+                    <Td><DateBadge>{d.toLocaleDateString('ko-KR', { month:'short', day:'numeric' })}</DateBadge></Td>
+                    <Td>
+                      <span style={{
+                        fontSize: 13, fontWeight: 700,
+                        color: diff === 0 ? '#dc2626' : diff <= 3 ? '#d97706' : '#059669',
+                      }}>
+                        {diff === 0 ? '오늘' : `D-${diff}`}
+                      </span>
+                    </Td>
+                    <Td><span style={{ fontWeight: 500, color: '#111827' }}>{p.partners?.name || '—'}</span></Td>
+                    <Td>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ fontWeight: 500, color: '#111827' }}>{p.items?.name || '—'}</span>
+                        {p.items?.code && <LotBadge>{p.items.code}</LotBadge>}
+                      </div>
+                    </Td>
+                    <Td><span style={{ fontWeight: 700 }}>{Number(p.quantity).toLocaleString()}</span> <span style={{ fontSize: 13, color: '#9ca3af' }}>박스</span></Td>
+                    <Td style={{ color: '#6b7280' }}>{p.manager || '—'}</Td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table></div>
         )}

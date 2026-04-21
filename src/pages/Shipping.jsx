@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
-import { Plus, Truck, X, ChevronDown, ChevronUp } from 'lucide-react'
+import { Plus, Truck, X, ChevronDown, ChevronUp, CalendarClock, Edit2, Trash2 } from 'lucide-react'
 import {
-  Card, CardHeader, Btn, RegisterBtn,
+  Card, CardHeader, Btn, RegisterBtn, IconBtn,
   Label, Input, SelectInput, Textarea,
+  Overlay, ModalHeader, ModalBody, ModalFooter,
   ErrorBox, EmptyState, Spinner, Badge, LotBadge, DateBadge,
   Th, Td, AuditStamp, useUserMap,
 } from '../components/UI'
@@ -210,8 +211,105 @@ function OrderRow({ order, index, onStatusChange, userMap }) {
   )
 }
 
+// ── 출고 계획 모달 ──────────────────────────────────
+function PlanModal({ plan, partners, items, profile, onClose, onSave }) {
+  const [form, setForm] = useState({
+    partner_id:   plan?.partner_id   || '',
+    item_id:      plan?.item_id      || '',
+    planned_date: plan?.planned_date || new Date().toISOString().split('T')[0],
+    quantity:     plan?.quantity     || '',
+    manager:      plan?.manager      || '',
+    notes:        plan?.notes        || '',
+  })
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const f = (k, v) => setForm(p => ({ ...p, [k]: v }))
+
+  async function handleSave() {
+    if (!form.partner_id)               { setError('거래처를 선택해 주세요.'); return }
+    if (!form.item_id)                  { setError('품목을 선택해 주세요.');   return }
+    if (!form.quantity || Number(form.quantity) <= 0) { setError('수량을 입력해 주세요.'); return }
+    setSaving(true); setError('')
+    const payload = {
+      partner_id:   form.partner_id,
+      item_id:      form.item_id,
+      planned_date: form.planned_date,
+      quantity:     Number(form.quantity),
+      manager:      form.manager || null,
+      notes:        form.notes || null,
+    }
+    let err = null
+    if (plan?.id) {
+      const { error } = await supabase.from('shipping_plans').update({
+        ...payload,
+        updated_by: profile?.id || null,
+        updated_at: new Date().toISOString(),
+      }).eq('id', plan.id)
+      err = error
+    } else {
+      const { error } = await supabase.from('shipping_plans').insert({
+        ...payload,
+        created_by: profile?.id || null,
+      })
+      err = error
+    }
+    setSaving(false)
+    if (err) setError(err.message); else onSave()
+  }
+
+  return (
+    <Overlay onClose={onClose} size="md">
+      <ModalHeader>{plan ? '출고 계획 수정' : '출고 계획 등록'}</ModalHeader>
+      <ModalBody>
+        {error && <ErrorBox msg={error} />}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+          <div>
+            <Label required>거래처</Label>
+            <SelectInput value={form.partner_id} onChange={v => f('partner_id', v)}>
+              <option value="">거래처 선택...</option>
+              {partners.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </SelectInput>
+          </div>
+          <div>
+            <Label required>출고 예정일</Label>
+            <Input type="date" value={form.planned_date} onChange={v => f('planned_date', v)} />
+          </div>
+          <div>
+            <Label required>품목</Label>
+            <SelectInput value={form.item_id} onChange={v => f('item_id', v)}>
+              <option value="">품목 선택...</option>
+              {items.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
+            </SelectInput>
+          </div>
+          <div>
+            <Label required>수량 (박스)</Label>
+            <Input type="number" value={form.quantity} onChange={v => f('quantity', v)} placeholder="0" />
+          </div>
+          <div>
+            <Label>담당자</Label>
+            <Input value={form.manager} onChange={v => f('manager', v)} placeholder="홍길동" />
+          </div>
+        </div>
+        <div>
+          <Label>메모</Label>
+          <Textarea value={form.notes} onChange={v => f('notes', v)} rows={2} placeholder="특이사항..." />
+        </div>
+      </ModalBody>
+      <ModalFooter>
+        <Btn variant="secondary" onClick={onClose}>취소</Btn>
+        <Btn disabled={saving} onClick={handleSave}>{saving ? '저장 중...' : plan ? '수정 저장' : '계획 등록'}</Btn>
+      </ModalFooter>
+    </Overlay>
+  )
+}
+
 export default function Shipping() {
+  const { profile, isSeniorManager } = useAuth()
   const userMap = useUserMap()
+  const [tab, setTab] = useState('orders')          // 'orders' | 'plans'
+  const [plans, setPlans] = useState([])
+  const [editPlan, setEditPlan] = useState(null)
+  const [showPlanModal, setShowPlanModal] = useState(false)
   const [orders, setOrders] = useState([])
   const [partners, setPartners] = useState([])
   const [items, setItems] = useState([])
@@ -224,14 +322,27 @@ export default function Shipping() {
 
   async function fetchAll() {
     setLoading(true)
-    const [{ data: ords }, { data: pts }, { data: its }, { data: st }] = await Promise.all([
+    const [{ data: ords }, { data: pts }, { data: its }, { data: st }, { data: pls }] = await Promise.all([
       supabase.from('shipping_orders').select('*, partners(name)').is('deleted_at', null).order('order_date', { ascending: false }),
       supabase.from('partners').select('*').in('type', ['customer', 'both']).is('deleted_at', null).order('name'),
       supabase.from('items').select('*').eq('is_active', true).is('deleted_at', null).order('name'),
       supabase.from('finished_goods_stock').select('*').gt('quantity', 0),
+      supabase.from('shipping_plans').select('*, partners(name), items(name, code)').is('deleted_at', null).order('planned_date'),
     ])
     setOrders(ords || []); setPartners(pts || []); setItems(its || []); setStock(st || [])
+    setPlans(pls || [])
     setLoading(false)
+  }
+
+  async function softDeletePlan(plan) {
+    if (!isSeniorManager) return
+    if (!confirm(`이 출고 계획을 삭제하시겠습니까?\n\n삭제 내역 메뉴에서 복구 가능합니다.`)) return
+    const { error } = await supabase.from('shipping_plans').update({
+      deleted_at: new Date().toISOString(),
+      deleted_by: profile?.id || null,
+    }).eq('id', plan.id)
+    if (error) alert(error.message)
+    else fetchAll()
   }
 
   async function handleStatusChange(orderId, newStatus) {
@@ -246,48 +357,143 @@ export default function Shipping() {
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 24 }}>
         <h1 style={{ fontSize: 28, fontWeight: 700, color: '#111827' }}>출고 관리</h1>
-        <RegisterBtn onClick={() => setShowModal(true)}>출고 등록</RegisterBtn>
+        {tab === 'orders' ? (
+          <RegisterBtn onClick={() => setShowModal(true)}>출고 등록</RegisterBtn>
+        ) : isSeniorManager ? (
+          <RegisterBtn onClick={() => { setEditPlan(null); setShowPlanModal(true) }}>출고 계획 등록</RegisterBtn>
+        ) : null}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16, marginBottom: 24 }}>
-        {[{ key: 'all', label: '전체' }, { key: 'pending', label: '대기중' }, { key: 'shipped', label: '출고완료' }, { key: 'delivered', label: '납품완료' }].map(({ key, label }) => {
-          const active = statusFilter === key
-          const st = key !== 'all' ? STATUS[key] : null
+      {/* 탭 스위처 */}
+      <div style={{ display: 'flex', gap: 4, marginBottom: 24, borderBottom: '1px solid #e5e7eb' }}>
+        {[
+          { key: 'orders', label: '출고 이력', icon: Truck },
+          { key: 'plans',  label: '출고 계획', icon: CalendarClock },
+        ].map(t => {
+          const active = tab === t.key
+          const Icon = t.icon
           return (
-            <button key={key} onClick={() => setStatusFilter(key)}
+            <button key={t.key} onClick={() => setTab(t.key)}
               style={{
-                background: '#ffffff', borderRadius: 12, padding: 24, textAlign: 'left',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                padding: '10px 48px', fontSize: 14, fontWeight: 600, lineHeight: 1,
+                background: active ? '#FF6B35' : '#e8e4dc',
+                color: active ? '#ffffff' : '#6b7280',
+                border: 'none', borderRadius: '8px 8px 0 0',
+                marginBottom: active ? -1 : 0,
                 cursor: 'pointer', transition: 'all 0.15s',
-                border: active ? '2px solid #004634' : '1px solid #e9ecef',
-                boxShadow: active ? '0 0 0 4px rgba(0,70,52,0.08)' : '0 4px 12px rgba(0,0,0,0.06)',
+                position: 'relative', zIndex: active ? 1 : 0,
               }}>
-              <p style={{ fontSize: 14, marginBottom: 14, color: active && st ? st.color : '#6b7280', fontWeight: active ? 600 : 500 }}>{label}</p>
-              <p style={{ fontSize: 40, fontWeight: 700, color: active ? '#004634' : '#111827', lineHeight: 1.1 }}>{counts[key]}</p>
+              <Icon size={15} />{t.label}
             </button>
           )
         })}
       </div>
 
-      <Card>
-        <CardHeader title="출고 이력" sub={`${filtered.length}건`} />
-        {loading ? (
-          <div className="py-20 flex items-center justify-center"><Spinner /></div>
-        ) : filtered.length === 0 ? (
-          <EmptyState icon={Truck} text="출고 이력이 없습니다" />
-        ) : (
-          <div className="tbl-wrap"><table className="w-full">
-            <thead><tr>{['출고일', '거래처', '메모', '상태', '등록', '수정', ''].map(h => <Th key={h}>{h}</Th>)}</tr></thead>
-            <tbody>
-              {filtered.map((order, i) => <OrderRow key={order.id} order={order} index={i} onStatusChange={handleStatusChange} userMap={userMap} />)}
-            </tbody>
-          </table></div>
-        )}
-      </Card>
+      {tab === 'orders' ? (
+        <>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16, marginBottom: 24 }}>
+            {[{ key: 'all', label: '전체' }, { key: 'pending', label: '대기중' }, { key: 'shipped', label: '출고완료' }, { key: 'delivered', label: '납품완료' }].map(({ key, label }) => {
+              const active = statusFilter === key
+              const st = key !== 'all' ? STATUS[key] : null
+              return (
+                <button key={key} onClick={() => setStatusFilter(key)}
+                  style={{
+                    background: '#ffffff', borderRadius: 12, padding: 24, textAlign: 'left',
+                    cursor: 'pointer', transition: 'all 0.15s',
+                    border: active ? '2px solid #004634' : '1px solid #e9ecef',
+                    boxShadow: active ? '0 0 0 4px rgba(0,70,52,0.08)' : '0 4px 12px rgba(0,0,0,0.06)',
+                  }}>
+                  <p style={{ fontSize: 14, marginBottom: 14, color: active && st ? st.color : '#6b7280', fontWeight: active ? 600 : 500 }}>{label}</p>
+                  <p style={{ fontSize: 40, fontWeight: 700, color: active ? '#004634' : '#111827', lineHeight: 1.1 }}>{counts[key]}</p>
+                </button>
+              )
+            })}
+          </div>
+
+          <Card>
+            <CardHeader title="출고 이력" sub={`${filtered.length}건`} />
+            {loading ? (
+              <div className="py-20 flex items-center justify-center"><Spinner /></div>
+            ) : filtered.length === 0 ? (
+              <EmptyState icon={Truck} text="출고 이력이 없습니다" />
+            ) : (
+              <div className="tbl-wrap"><table className="w-full">
+                <thead><tr>{['출고일', '거래처', '메모', '상태', '등록', '수정', ''].map(h => <Th key={h}>{h}</Th>)}</tr></thead>
+                <tbody>
+                  {filtered.map((order, i) => <OrderRow key={order.id} order={order} index={i} onStatusChange={handleStatusChange} userMap={userMap} />)}
+                </tbody>
+              </table></div>
+            )}
+          </Card>
+        </>
+      ) : (
+        // ── 출고 계획 뷰 ──
+        <Card>
+          <CardHeader title="출고 계획" sub={`${plans.length}건 · 예정일 오름차순`} />
+          {loading ? (
+            <div className="py-20 flex items-center justify-center"><Spinner /></div>
+          ) : plans.length === 0 ? (
+            <EmptyState icon={CalendarClock} text="등록된 출고 계획이 없습니다" />
+          ) : (
+            <div className="tbl-wrap"><table className="w-full">
+              <thead><tr>{['예정일', '거래처', '품목', '수량', '담당자', '상태', '등록', '수정', isSeniorManager ? '관리' : ''].map(h => <Th key={h}>{h}</Th>)}</tr></thead>
+              <tbody>
+                {plans.map((p, i) => {
+                  const st = STATUS[p.status] || STATUS.pending
+                  const d = new Date(p.planned_date)
+                  const today = new Date(); today.setHours(0,0,0,0)
+                  const diff = Math.ceil((d - today) / 86400000)
+                  return (
+                    <tr key={p.id} style={{ backgroundColor: i % 2 === 0 ? '#fff' : '#fafafa' }}>
+                      <Td>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                          <DateBadge>{d.toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' })}</DateBadge>
+                          {diff >= 0 && diff <= 7 && (
+                            <span style={{ fontSize: 11, color: diff === 0 ? '#dc2626' : diff <= 3 ? '#d97706' : '#6b7280', fontWeight: 600 }}>
+                              {diff === 0 ? '오늘' : `D-${diff}`}
+                            </span>
+                          )}
+                        </div>
+                      </Td>
+                      <Td><span style={{ fontWeight: 500, color: '#111827' }}>{p.partners?.name || '—'}</span></Td>
+                      <Td>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span style={{ fontWeight: 500, color: '#111827' }}>{p.items?.name || '—'}</span>
+                          {p.items?.code && <LotBadge>{p.items.code}</LotBadge>}
+                        </div>
+                      </Td>
+                      <Td><span style={{ fontWeight: 700 }}>{Number(p.quantity).toLocaleString()}</span> <span style={{ fontSize: 13, color: '#9ca3af' }}>박스</span></Td>
+                      <Td style={{ color: '#6b7280' }}>{p.manager || '—'}</Td>
+                      <Td><Badge label={st.label} color={st.color} bg={st.bg} /></Td>
+                      <Td><AuditStamp userName={userMap[p.created_by]} at={p.created_at} /></Td>
+                      <Td><AuditStamp userName={userMap[p.updated_by]} at={p.updated_at} /></Td>
+                      {isSeniorManager && (
+                        <Td>
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <IconBtn icon={Edit2} onClick={() => { setEditPlan(p); setShowPlanModal(true) }} label="수정" />
+                            <IconBtn icon={Trash2} variant="danger" onClick={() => softDeletePlan(p)} label="삭제" />
+                          </div>
+                        </Td>
+                      )}
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table></div>
+          )}
+        </Card>
+      )}
 
       {showModal && (
         <ShippingModal partners={partners} items={items} stock={stock}
           onClose={() => setShowModal(false)}
           onSave={() => { setShowModal(false); fetchAll() }} />
+      )}
+      {showPlanModal && (
+        <PlanModal plan={editPlan} partners={partners} items={items} profile={profile}
+          onClose={() => { setShowPlanModal(false); setEditPlan(null) }}
+          onSave={() => { setShowPlanModal(false); setEditPlan(null); fetchAll() }} />
       )}
     </div>
   )
