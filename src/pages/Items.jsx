@@ -337,6 +337,52 @@ function HistoryModal({ item, onClose }) {
   )
 }
 
+// ── 품목 유형 선택 모달 ─────────────────────────────
+function TypeChooserModal({ onChoose, onClose }) {
+  const OPTIONS = [
+    { key: 'item', label: '완성품',   icon: Package, hint: 'CRSP CRSP · 뿅김 등 완성된 제품', color: '#004634', bg: '#FCF4E2' },
+    { key: 'raw',  label: '원자재',   icon: Wheat,   hint: '조미김 원초 · 구운김 원초 등',     color: '#7c2d12', bg: '#ffedd5' },
+  ]
+  return (
+    <Overlay onClose={onClose} size="sm">
+      <ModalHeader sub="등록할 품목의 유형을 선택해 주세요">품목 유형 선택</ModalHeader>
+      <ModalBody>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          {OPTIONS.map(o => {
+            const Icon = o.icon
+            return (
+              <button key={o.key} onClick={() => onChoose(o.key)}
+                style={{
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                  gap: 12, padding: '28px 16px',
+                  background: '#fff', border: `2px solid ${o.color}40`,
+                  borderRadius: 14, cursor: 'pointer', transition: 'all 0.15s',
+                }}
+                onMouseEnter={e => {
+                  e.currentTarget.style.background = o.bg
+                  e.currentTarget.style.borderColor = o.color
+                  e.currentTarget.style.transform = 'translateY(-2px)'
+                }}
+                onMouseLeave={e => {
+                  e.currentTarget.style.background = '#fff'
+                  e.currentTarget.style.borderColor = `${o.color}40`
+                  e.currentTarget.style.transform = 'translateY(0)'
+                }}>
+                <Icon size={40} color={o.color} />
+                <div style={{ fontSize: 18, fontWeight: 800, color: o.color }}>{o.label}</div>
+                <div style={{ fontSize: 12, color: '#6b7280', textAlign: 'center', lineHeight: 1.4 }}>{o.hint}</div>
+              </button>
+            )
+          })}
+        </div>
+      </ModalBody>
+      <ModalFooter>
+        <Btn variant="secondary" onClick={onClose}>취소</Btn>
+      </ModalFooter>
+    </Overlay>
+  )
+}
+
 // ── 메인 ─────────────────────────────────────────────
 export default function Items() {
   const { profile, canInsert, canUpdate, canDelete } = useAuth()
@@ -419,7 +465,7 @@ export default function Items() {
       <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 24 }}>
         <h1 style={{ fontSize: 28, fontWeight: 700, color: '#111827', lineHeight: 1.2, display: 'flex', alignItems: 'center', margin: 0 }}>품목 관리</h1>
         {canInsert && (
-          <RegisterBtn onClick={() => { setSelected(null); setModal(tab === 'items' ? 'new-item' : 'new-raw') }}>
+          <RegisterBtn onClick={() => { setSelected(null); setModal('choose-type') }}>
             품목 추가
           </RegisterBtn>
         )}
@@ -567,6 +613,11 @@ export default function Items() {
         )}
       </Card>
 
+      {modal === 'choose-type' && (
+        <TypeChooserModal
+          onChoose={key => setModal(key === 'item' ? 'new-item' : 'new-raw')}
+          onClose={() => setModal(null)} />
+      )}
       {(modal === 'new-item' || modal === 'edit-item') && (
         <ItemModal item={selected} profile={profile} onClose={() => { setModal(null); setSelected(null) }} onSave={handleSaved} />
       )}
