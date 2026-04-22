@@ -12,17 +12,26 @@ import {
 const CATEGORIES  = ['조미김', '구운김']
 const UNITS       = ['봉', '캔']
 const PACK_TYPES  = ['전장', '절단']
+const PROD_TYPES  = [
+  { value: 'internal',    label: '자체생산' },
+  { value: 'outsourced',  label: '외주' },
+]
+const MONTHS = [1,2,3,4,5,6,7,8,9,10,11,12]
 const RAW_UNITS   = ['kg', 'g', 'L', 'ml', '개', '롤', '장']
 
 // 변경 감지: oldItem/newItem 비교하여 {field: {before, after}} 리턴
 function diffItem(oldItem, newItem) {
-  const tracked = ['code','name','category','unit','weight_g','sheet_count','packaging_type','raw_sheets_per_unit','shelf_life_days','is_active']
+  const tracked = ['code','name','category','unit','weight_g','sheet_count','packaging_type','raw_sheets_per_unit','shelf_life_days','is_active','production_type']
   const changes = {}
   for (const k of tracked) {
     const a = oldItem?.[k] ?? null
     const b = newItem?.[k] ?? null
     if (String(a) !== String(b)) changes[k] = { before: a, after: b }
   }
+  // 월별 안전재고는 JSON 비교 (변경 시 전체 기록)
+  const oldSS = JSON.stringify(oldItem?.safety_stock_by_month || {})
+  const newSS = JSON.stringify(newItem?.safety_stock_by_month || {})
+  if (oldSS !== newSS) changes.safety_stock_by_month = { before: oldItem?.safety_stock_by_month, after: newItem?.safety_stock_by_month }
   return changes
 }
 
@@ -43,12 +52,19 @@ function ItemModal({ item, profile, onClose, onSave }) {
     name:                item?.name || '',
     category:            item?.category || CATEGORIES[0],
     unit:                item?.unit || UNITS[0],
+    production_type:     item?.production_type || 'internal',
     weight_g:            item?.weight_g ?? '',
     sheet_count:         item?.sheet_count ?? '',
     packaging_type:      item?.packaging_type || PACK_TYPES[0],
     raw_sheets_per_unit: item?.raw_sheets_per_unit ?? '',
     shelf_life_days:     item?.shelf_life_days ?? 365,
     is_active:           item?.is_active ?? true,
+  })
+  const [safetyStock, setSafetyStock] = useState(() => {
+    const ss = item?.safety_stock_by_month || {}
+    const obj = {}
+    MONTHS.forEach(m => { obj[m] = ss[m] ?? ss[String(m)] ?? '' })
+    return obj
   })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -65,17 +81,26 @@ function ItemModal({ item, profile, onClose, onSave }) {
       setSaving(false); setError(`이미 사용 중인 품목 코드입니다: ${form.code}`); return
     }
 
+    // 월별 안전재고 payload 구성 (빈 값은 제외)
+    const ssPayload = {}
+    MONTHS.forEach(m => {
+      const v = safetyStock[m]
+      if (v !== '' && v != null) ssPayload[m] = Number(v)
+    })
+
     const payload = {
       code:                form.code.trim(),
       name:                form.name.trim(),
       category:            form.category,
       unit:                form.unit,
+      production_type:     form.production_type,
       weight_g:            form.weight_g  === '' ? null : Number(form.weight_g),
       sheet_count:         form.sheet_count === '' ? null : Number(form.sheet_count),
       packaging_type:      form.packaging_type,
       raw_sheets_per_unit: form.raw_sheets_per_unit === '' ? null : Number(form.raw_sheets_per_unit),
       shelf_life_days:     form.shelf_life_days === '' ? null : Number(form.shelf_life_days),
       is_active:           !!form.is_active,
+      safety_stock_by_month: ssPayload,
     }
 
     if (item?.id) {
@@ -122,6 +147,12 @@ function ItemModal({ item, profile, onClose, onSave }) {
             </SelectInput>
           </div>
           <div>
+            <Label required>생산 유형</Label>
+            <SelectInput value={form.production_type} onChange={v => f('production_type', v)}>
+              {PROD_TYPES.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
+            </SelectInput>
+          </div>
+          <div>
             <Label>중량 (g)</Label>
             <Input type="number" value={form.weight_g} onChange={v => f('weight_g', v)} placeholder="15" />
           </div>
@@ -150,6 +181,35 @@ function ItemModal({ item, profile, onClose, onSave }) {
               <option value="inactive">생산중지</option>
             </SelectInput>
           </div>
+        </div>
+
+        {/* 월별 안전재고 */}
+        <div style={{ marginTop: 8 }}>
+          <Label>월별 안전재고 (박스/단위)</Label>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 8 }}>
+            {MONTHS.map(m => (
+              <div key={m} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <span style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', textAlign: 'center' }}>{m}월</span>
+                <input
+                  type="number" min={0}
+                  value={safetyStock[m]}
+                  onChange={e => setSafetyStock(p => ({ ...p, [m]: e.target.value }))}
+                  placeholder="0"
+                  style={{
+                    width: '100%', height: 40, padding: '0 10px',
+                    fontSize: 14, textAlign: 'center',
+                    border: '1.5px solid #e5e7eb', borderRadius: 8,
+                    outline: 'none', transition: 'border-color 0.15s',
+                  }}
+                  onFocus={e => (e.target.style.borderColor = '#004634')}
+                  onBlur={e => (e.target.style.borderColor = '#e5e7eb')}
+                />
+              </div>
+            ))}
+          </div>
+          <p style={{ fontSize: 12, color: '#9ca3af', marginTop: 6 }}>
+            설정된 월에는 해당 수량 미만일 때 재고부족 경고가 표시됩니다.
+          </p>
         </div>
       </ModalBody>
       <ModalFooter>
@@ -287,10 +347,17 @@ export default function Items() {
   async function fetchAll() {
     setLoading(true)
     const [{ data: its }, { data: rms }] = await Promise.all([
-      supabase.from('items').select('*').is('deleted_at', null).order('code'),
+      supabase.from('items').select('*').is('deleted_at', null).order('name'),
       supabase.from('raw_materials').select('*').is('deleted_at', null).order('code'),
     ])
-    setItems(its || []); setRawMaterials(rms || [])
+    // 정렬: 품명 오름차순, 동일 품명 내에서 자체생산(internal) 먼저, 외주(outsourced) 뒤
+    const sorted = (its || []).slice().sort((a, b) => {
+      const n = (a.name || '').localeCompare(b.name || '')
+      if (n !== 0) return n
+      const order = { internal: 0, outsourced: 1 }
+      return (order[a.production_type] ?? 0) - (order[b.production_type] ?? 0)
+    })
+    setItems(sorted); setRawMaterials(rms || [])
     setLoading(false)
   }
 
@@ -419,7 +486,14 @@ export default function Items() {
                   return (
                     <tr key={item.id} style={rowStyle}>
                       <Td><LotBadge>{item.code}</LotBadge></Td>
-                      <Td><span style={{ fontWeight: 500, color: '#111827' }}>{item.name}</span></Td>
+                      <Td>
+                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ fontWeight: 500, color: '#111827' }}>{item.name}</span>
+                          {item.production_type === 'outsourced' && (
+                            <Badge label="외주" color="#7c2d12" bg="#ffedd5" />
+                          )}
+                        </div>
+                      </Td>
                       <Td style={{ color: '#6b7280' }}>{item.category || '—'}</Td>
                       <Td style={{ color: '#6b7280' }}>{item.unit || '—'}</Td>
                       <Td style={{ color: '#6b7280' }}>{item.weight_g ?? '—'}</Td>

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
-import { Plus, Truck, X, ChevronDown, ChevronUp, CalendarClock, Edit2, Trash2 } from 'lucide-react'
+import { Plus, Truck, X, ChevronDown, ChevronUp, CalendarClock, Edit2, Trash2, Printer } from 'lucide-react'
 import {
   Card, CardHeader, Btn, RegisterBtn, IconBtn,
   Label, Input, SelectInput, Textarea,
@@ -303,13 +303,75 @@ function PlanModal({ plan, partners, items, profile, onClose, onSave }) {
   )
 }
 
+// ── 제품거래기록서 출력 모달 (UI만) ────────────────────
+function PrintModal({ orders, itemsMeta, onClose }) {
+  const [filter, setFilter] = useState('all')  // all | internal | outsourced
+  const [busy, setBusy] = useState(false)
+
+  const metaMap = {}
+  itemsMeta.forEach(m => { metaMap[m.id] = m })
+
+  async function handlePrint() {
+    setBusy(true)
+    // TODO: 실제 인쇄/PDF 생성 연동 (현재는 UI만)
+    await new Promise(r => setTimeout(r, 600))
+    window.print()
+    setBusy(false)
+  }
+
+  return (
+    <Overlay onClose={onClose} size="md">
+      <ModalHeader>제품거래기록서 출력</ModalHeader>
+      <ModalBody>
+        <div>
+          <Label>출력 대상</Label>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {[
+              { v: 'all',         label: '전체' },
+              { v: 'internal',    label: '자체생산' },
+              { v: 'outsourced',  label: '외주' },
+            ].map(o => (
+              <button key={o.v} type="button" onClick={() => setFilter(o.v)}
+                style={{
+                  flex: 1, height: 48,
+                  border: filter === o.v ? '2px solid #004634' : '1.5px solid #e5e7eb',
+                  borderRadius: 10, background: filter === o.v ? '#004634' : '#fff',
+                  color: filter === o.v ? '#fff' : '#374151',
+                  fontSize: 15, fontWeight: 600, cursor: 'pointer',
+                }}>{o.label}</button>
+            ))}
+          </div>
+        </div>
+        <p style={{ fontSize: 13, color: '#6b7280', marginTop: 8 }}>
+          {filter === 'all' && '전체 출력 시 외주 품목은 비고란에 표기됩니다.'}
+          {filter === 'internal' && '자체생산 품목만 포함한 기록서가 출력됩니다.'}
+          {filter === 'outsourced' && '외주 품목만 포함한 기록서가 출력됩니다.'}
+        </p>
+        <div style={{
+          marginTop: 12, padding: 16,
+          background: '#FCF4E2', borderRadius: 10,
+          fontSize: 13, color: '#7c2d12',
+        }}>
+          ℹ️ 현재는 UI만 구현되어 있습니다. 실제 PDF/프린트 출력은 후속 작업에서 연동됩니다.
+        </div>
+      </ModalBody>
+      <ModalFooter>
+        <Btn variant="secondary" onClick={onClose}>취소</Btn>
+        <Btn disabled={busy} onClick={handlePrint}>{busy ? '준비 중...' : '출력'}</Btn>
+      </ModalFooter>
+    </Overlay>
+  )
+}
+
 export default function Shipping() {
   const { profile, isSeniorManager } = useAuth()
   const userMap = useUserMap()
-  const [tab, setTab] = useState('orders')          // 'orders' | 'plans'
+  const [tab, setTab] = useState('orders')
   const [plans, setPlans] = useState([])
   const [editPlan, setEditPlan] = useState(null)
   const [showPlanModal, setShowPlanModal] = useState(false)
+  const [showPrintModal, setShowPrintModal] = useState(false)
+  const [itemsMeta, setItemsMeta] = useState([])
   const [orders, setOrders] = useState([])
   const [partners, setPartners] = useState([])
   const [items, setItems] = useState([])
@@ -327,10 +389,11 @@ export default function Shipping() {
       supabase.from('partners').select('*').in('type', ['customer', 'both']).is('deleted_at', null).order('name'),
       supabase.from('items').select('*').eq('is_active', true).is('deleted_at', null).order('name'),
       supabase.from('finished_goods_stock').select('*').gt('quantity', 0),
-      supabase.from('shipping_plans').select('*, partners(name), items(name, code)').is('deleted_at', null).order('planned_date'),
+      supabase.from('shipping_plans').select('*, partners(name), items(name, code, production_type)').is('deleted_at', null).order('planned_date'),
     ])
     setOrders(ords || []); setPartners(pts || []); setItems(its || []); setStock(st || [])
     setPlans(pls || [])
+    setItemsMeta(its || [])
     setLoading(false)
   }
 
@@ -355,13 +418,16 @@ export default function Shipping() {
 
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 24 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 24, flexWrap: 'wrap' }}>
         <h1 style={{ fontSize: 28, fontWeight: 700, color: '#111827' }}>출고 관리</h1>
         {tab === 'orders' ? (
           <RegisterBtn onClick={() => setShowModal(true)}>출고 등록</RegisterBtn>
         ) : isSeniorManager ? (
           <RegisterBtn onClick={() => { setEditPlan(null); setShowPlanModal(true) }}>출고 계획 등록</RegisterBtn>
         ) : null}
+        <Btn variant="secondary" onClick={() => setShowPrintModal(true)}>
+          <Printer size={16} /> 제품거래기록서 출력
+        </Btn>
       </div>
 
       {/* 탭 스위처 */}
@@ -458,9 +524,10 @@ export default function Shipping() {
                       </Td>
                       <Td><span style={{ fontWeight: 500, color: '#111827' }}>{p.partners?.name || '—'}</span></Td>
                       <Td>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                           <span style={{ fontWeight: 500, color: '#111827' }}>{p.items?.name || '—'}</span>
                           {p.items?.code && <LotBadge>{p.items.code}</LotBadge>}
+                          {p.items?.production_type === 'outsourced' && <Badge label="외주" color="#7c2d12" bg="#ffedd5" />}
                         </div>
                       </Td>
                       <Td><span style={{ fontWeight: 700 }}>{Number(p.quantity).toLocaleString()}</span> <span style={{ fontSize: 13, color: '#9ca3af' }}>박스</span></Td>
@@ -494,6 +561,10 @@ export default function Shipping() {
         <PlanModal plan={editPlan} partners={partners} items={items} profile={profile}
           onClose={() => { setShowPlanModal(false); setEditPlan(null) }}
           onSave={() => { setShowPlanModal(false); setEditPlan(null); fetchAll() }} />
+      )}
+      {showPrintModal && (
+        <PrintModal orders={orders} itemsMeta={itemsMeta}
+          onClose={() => setShowPrintModal(false)} />
       )}
     </div>
   )

@@ -8,24 +8,36 @@ export default function Inventory() {
   const [rawStock, setRawStock] = useState([])
   const [finishedStock, setFinishedStock] = useState([])
   const [summary, setSummary] = useState([])
+  const [itemsMeta, setItemsMeta] = useState([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => { fetchAll() }, [])
 
   async function fetchAll() {
     setLoading(true)
-    const [{ data: raw }, { data: fin }, { data: sum }] = await Promise.all([
+    const [{ data: raw }, { data: fin }, { data: sum }, { data: itemsMeta }] = await Promise.all([
       supabase.from('raw_material_stock').select('*').order('received_at', { ascending: false }),
-      supabase.from('finished_goods_stock').select('*, items(name, code)').gt('quantity', 0).order('expires_at'),
+      supabase.from('finished_goods_stock').select('*, items(id, name, code, production_type, safety_stock_by_month)').gt('quantity', 0).order('expires_at'),
       supabase.from('inventory_summary').select('*').order('item_name'),
+      supabase.from('items').select('id, name, code, production_type, safety_stock_by_month').is('deleted_at', null),
     ])
     setRawStock(raw || []); setFinishedStock(fin || []); setSummary(sum || [])
+    setItemsMeta(itemsMeta || [])
     setLoading(false)
   }
 
   const totalFinished = finishedStock.reduce((s, r) => s + (Number(r.quantity) || 0), 0)
   const totalRaw = rawStock.reduce((s, r) => s + (Number(r.remaining_qty) || 0), 0)
   const soonExpiry = finishedStock.filter(r => { if (!r.expires_at) return false; const d = (new Date(r.expires_at) - new Date()) / 86400000; return d <= 7 && d >= 0 })
+  // 안전재고 부족 건수
+  const cMonth = new Date().getMonth() + 1
+  const metaMap = {}
+  itemsMeta.forEach(m => { metaMap[m.id] = m })
+  const lowStock = summary.filter(r => {
+    const ss = metaMap[r.item_id]?.safety_stock_by_month || {}
+    const safety = Number(ss[cMonth] ?? ss[String(cMonth)] ?? 0)
+    return safety > 0 && Number(r.total_qty || 0) < safety
+  })
 
   const tabs = [
     { key: 'finished', label: '완제품 재고', icon: Package },
@@ -41,6 +53,7 @@ export default function Inventory() {
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16, marginBottom: 24 }}>
+        <StatCard label="재고 부족 경고" value={lowStock.length} unit="건" sub={`${cMonth}월 안전재고 미달`} alert={lowStock.length > 0} />
         <StatCard label="완제품 재고" value={totalFinished.toLocaleString()} unit="박스" sub={`${summary.length}종`} />
         <StatCard label="원재료 잔여량" value={totalRaw.toFixed(1)} sub="통합 잔여" />
         <StatCard label="소비기한 임박" value={soonExpiry.length} unit="건" sub="7일 이내" alert={soonExpiry.length > 0} />
@@ -70,7 +83,7 @@ export default function Inventory() {
           <div style={{ padding: '72px 0', display: 'flex', justifyContent: 'center' }}><Spinner /></div>
         ) : tab === 'finished' ? <FinishedTable data={finishedStock} />
           : tab === 'raw'      ? <RawTable data={rawStock} />
-          :                      <SummaryTable data={summary} />}
+          :                      <SummaryTable data={summary} itemsMeta={itemsMeta} />}
       </Card>
     </div>
   )
@@ -86,10 +99,16 @@ function FinishedTable({ data }) {
           const diff = r.expires_at ? Math.ceil((new Date(r.expires_at) - new Date()) / 86400000) : null
           const expired = diff !== null && diff < 0
           const urgent  = diff !== null && diff <= 7 && diff >= 0
+          const isOut = r.items?.production_type === 'outsourced'
           return (
             <tr key={r.id} style={{ backgroundColor: i % 2 === 0 ? '#fff' : '#fafafa' }}>
               <Td><LotBadge>{r.batch_number}</LotBadge></Td>
-              <Td><span style={{ fontWeight: 500, color: '#111827' }}>{r.items?.name}</span></Td>
+              <Td>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ fontWeight: 500, color: '#111827' }}>{r.items?.name}</span>
+                  {isOut && <Badge label="외주" color="#7c2d12" bg="#ffedd5" />}
+                </div>
+              </Td>
               <Td><span style={{ fontWeight: 600, fontSize: 16 }}>{Number(r.quantity).toLocaleString()}</span> <span style={{ fontSize: 13, color: '#9ca3af' }}>박스</span></Td>
               <Td style={{ color: expired ? '#dc2626' : '#374151' }}>{r.expires_at ? new Date(r.expires_at).toLocaleDateString('ko-KR') : '—'}</Td>
               <Td>{diff !== null && <Badge label={expired ? `만료 ${Math.abs(diff)}일` : `D-${diff}`} color={expired ? '#dc2626' : urgent ? '#d97706' : '#059669'} bg={expired ? '#fee2e2' : urgent ? '#fef3c7' : '#d1fae5'} />}</Td>
@@ -132,21 +151,50 @@ function RawTable({ data }) {
   )
 }
 
-function SummaryTable({ data }) {
+function SummaryTable({ data, itemsMeta }) {
   if (data.length === 0) return <EmptyState icon={BarChart3} text="재고 정보가 없습니다" />
+  const metaMap = {}
+  ;(itemsMeta || []).forEach(m => { metaMap[m.id] = m })
+  const currentMonth = new Date().getMonth() + 1
   return (
     <div className="tbl-wrap"><table style={{ width: '100%', borderCollapse: 'collapse' }}>
-      <thead><tr>{['품목명', '코드', '총 재고', '배치 수', '가장 빠른 소비기한'].map(h => <Th key={h}>{h}</Th>)}</tr></thead>
+      <thead><tr>{['품목명', '코드', '총 재고', '안전재고 (이번 달)', '상태', '배치 수', '가장 빠른 소비기한'].map(h => <Th key={h}>{h}</Th>)}</tr></thead>
       <tbody>
-        {data.map((r, i) => (
-          <tr key={r.item_id} style={{ backgroundColor: i % 2 === 0 ? '#fff' : '#fafafa' }}>
-            <Td><span style={{ fontWeight: 500, color: '#111827' }}>{r.item_name}</span></Td>
-            <Td><LotBadge>{r.item_code}</LotBadge></Td>
-            <Td><span style={{ fontSize: 20, fontWeight: 700, color: '#111827' }}>{Number(r.total_qty || 0).toLocaleString()}</span> <span style={{ fontSize: 13, color: '#9ca3af' }}>박스</span></Td>
-            <Td style={{ color: '#6b7280' }}>{r.batch_count ?? 0}개</Td>
-            <Td style={{ color: '#6b7280' }}>{r.nearest_expiry ? new Date(r.nearest_expiry).toLocaleDateString('ko-KR') : '—'}</Td>
-          </tr>
-        ))}
+        {data.map((r, i) => {
+          const meta = metaMap[r.item_id]
+          const ss = meta?.safety_stock_by_month || {}
+          const safety = Number(ss[currentMonth] ?? ss[String(currentMonth)] ?? 0)
+          const total = Number(r.total_qty || 0)
+          const low = safety > 0 && total < safety
+          const isOut = meta?.production_type === 'outsourced'
+          return (
+            <tr key={r.item_id} style={{ backgroundColor: i % 2 === 0 ? '#fff' : '#fafafa' }}>
+              <Td>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ fontWeight: 500, color: '#111827' }}>{r.item_name}</span>
+                  {isOut && <Badge label="외주" color="#7c2d12" bg="#ffedd5" />}
+                </div>
+              </Td>
+              <Td><LotBadge>{r.item_code}</LotBadge></Td>
+              <Td>
+                <span style={{ fontSize: 20, fontWeight: 700, color: low ? '#dc2626' : '#111827' }}>
+                  {total.toLocaleString()}
+                </span>
+                <span style={{ fontSize: 13, color: '#9ca3af' }}> 박스</span>
+              </Td>
+              <Td style={{ color: '#6b7280' }}>
+                {safety > 0 ? `${safety.toLocaleString()} 박스` : <span style={{ color: '#d1d5db' }}>미설정</span>}
+              </Td>
+              <Td>
+                {safety === 0 ? <span style={{ color: '#d1d5db', fontSize: 13 }}>—</span>
+                 : low ? <Badge label="재고 부족" color="#dc2626" bg="#fee2e2" />
+                       : <Badge label="안정" color="#059669" bg="#d1fae5" />}
+              </Td>
+              <Td style={{ color: '#6b7280' }}>{r.batch_count ?? 0}개</Td>
+              <Td style={{ color: '#6b7280' }}>{r.nearest_expiry ? new Date(r.nearest_expiry).toLocaleDateString('ko-KR') : '—'}</Td>
+            </tr>
+          )
+        })}
       </tbody>
     </table></div>
   )
