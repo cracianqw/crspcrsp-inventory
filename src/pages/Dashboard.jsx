@@ -272,7 +272,7 @@ export default function Dashboard() {
           <div className="tbl-wrap"><table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr>
-                {['품목명', '코드', '계획 수량'].map(h => (
+                {['품목명', '품목보고번호', '계획 수량'].map(h => (
                   <th key={h} style={{ padding: '12px 16px', textAlign: h === '계획 수량' ? 'right' : 'left', fontSize: 12, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.06em', backgroundColor: '#f9fafb', borderBottom: '1px solid #f0f0f0' }}>{h}</th>
                 ))}
               </tr>

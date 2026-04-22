@@ -14,7 +14,7 @@ const MODULES = [
     selectExtra: '',
     title: r => r.name,
     cols: [
-      { key: 'code', label: '코드', render: r => <LotBadge>{r.code}</LotBadge> },
+      { key: 'code', label: '품목보고번호', render: r => <LotBadge>{r.code}</LotBadge> },
       { key: 'name', label: '품명', render: r => <b>{r.name}</b> },
       { key: 'category', label: '카테고리' },
       { key: 'unit', label: '단위' },

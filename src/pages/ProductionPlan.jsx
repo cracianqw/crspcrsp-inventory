@@ -236,7 +236,7 @@ export default function ProductionPlan() {
           <EmptyState icon={Calendar} text="활성 품목이 없습니다" />
         ) : (
           <div className="tbl-wrap"><table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead><tr>{['품목', '코드', '규격', '박스당 장수', `계획 (${mode === 'sheets' ? '장' : '박스'})`, '변환 표시'].map(h => <Th key={h}>{h}</Th>)}</tr></thead>
+            <thead><tr>{['품목', '품목보고번호', '규격', '박스당 장수', `계획 (${mode === 'sheets' ? '장' : '박스'})`, '변환 표시'].map(h => <Th key={h}>{h}</Th>)}</tr></thead>
             <tbody>
               {items.map((it, i) => {
                 const rsp = it.raw_sheets_per_unit || 1
@@ -363,7 +363,7 @@ export default function ProductionPlan() {
             <EmptyState icon={Calendar} text="품목이 없습니다" />
           ) : (
             <div className="tbl-wrap"><table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead><tr>{['품목', '코드', '계획 (박스)', '실적 (박스)', '달성률', '상태'].map(h => <Th key={h}>{h}</Th>)}</tr></thead>
+              <thead><tr>{['품목', '품목보고번호', '계획 (박스)', '실적 (박스)', '달성률', '상태'].map(h => <Th key={h}>{h}</Th>)}</tr></thead>
               <tbody>
                 {items.map((it, i) => {
                   const plan = plans[currentIso]?.[it.id] || 0

@@ -71,7 +71,7 @@ function ItemModal({ item, profile, onClose, onSave }) {
   const f = (k, v) => setForm(p => ({ ...p, [k]: v }))
 
   async function handleSave() {
-    if (!form.code?.trim()) { setError('품목 코드를 입력해 주세요.'); return }
+    if (!form.code?.trim()) { setError('품목보고번호를 입력해 주세요.'); return }
     if (!form.name?.trim()) { setError('품목명을 입력해 주세요.'); return }
     setSaving(true); setError('')
 
@@ -86,7 +86,7 @@ function ItemModal({ item, profile, onClose, onSave }) {
     if (dup && dup.length > 0 && dup[0].id !== item?.id) {
       setSaving(false)
       const typeLabel = form.production_type === 'outsourced' ? '외주' : '자체생산'
-      setError(`이미 사용 중인 품목 코드입니다 (${typeLabel}): ${form.code}`)
+      setError(`이미 사용 중인 품목보고번호입니다 (${typeLabel}): ${form.code}`)
       return
     }
 
@@ -136,8 +136,8 @@ function ItemModal({ item, profile, onClose, onSave }) {
         {error && <ErrorBox msg={error} />}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
           <div>
-            <Label required>품목 코드</Label>
-            <Input value={form.code} onChange={v => f('code', v)} placeholder="IT-001" />
+            <Label required>품목보고번호</Label>
+            <Input value={form.code} onChange={v => f('code', v)} placeholder="식약처 품목보고번호" />
           </div>
           <div>
             <Label required>품목명</Label>
@@ -266,7 +266,7 @@ function RawMaterialModal({ item, onClose, onSave }) {
 
 // ── 변경 이력 모달 ─────────────────────────────────
 const FIELD_LABELS = {
-  code: '품목 코드', name: '품목명', category: '카테고리', unit: '단위',
+  code: '품목보고번호', name: '품목명', category: '카테고리', unit: '단위',
   weight_g: '중량(g)', sheet_count: '매수', packaging_type: '포장 타입',
   raw_sheets_per_unit: '장당 원초 소요', shelf_life_days: '소비기한(일)',
   is_active: '활성 상태',
@@ -484,7 +484,7 @@ export default function Items() {
           filtered.length === 0 ? <EmptyState icon={Package} text={activeFilter === 'inactive' ? '생산중지 품목이 없습니다' : '등록된 완성품이 없습니다'} /> : (
             <div className="tbl-wrap">
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead><tr>{['코드', '품명', '카테고리', '단위', '중량(g)', '매수', '포장', '장당원초', '소비기한', '상태', canEditRow ? '관리' : ''].map(h => <Th key={h}>{h}</Th>)}</tr></thead>
+              <thead><tr>{['품목보고번호', '품명', '카테고리', '단위', '중량(g)', '매수', '포장', '장당원초', '소비기한', '상태', canEditRow ? '관리' : ''].map(h => <Th key={h}>{h}</Th>)}</tr></thead>
               <tbody>
                 {filtered.map((item, i) => {
                   const dim = !item.is_active

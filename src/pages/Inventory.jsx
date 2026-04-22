@@ -158,7 +158,7 @@ function SummaryTable({ data, itemsMeta }) {
   const currentMonth = new Date().getMonth() + 1
   return (
     <div className="tbl-wrap"><table style={{ width: '100%', borderCollapse: 'collapse' }}>
-      <thead><tr>{['품목명', '코드', '총 재고', '안전재고 (이번 달)', '상태', '배치 수', '가장 빠른 소비기한'].map(h => <Th key={h}>{h}</Th>)}</tr></thead>
+      <thead><tr>{['품목명', '품목보고번호', '총 재고', '안전재고 (이번 달)', '상태', '배치 수', '가장 빠른 소비기한'].map(h => <Th key={h}>{h}</Th>)}</tr></thead>
       <tbody>
         {data.map((r, i) => {
           const meta = metaMap[r.item_id]
