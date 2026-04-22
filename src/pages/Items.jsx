@@ -75,10 +75,19 @@ function ItemModal({ item, profile, onClose, onSave }) {
     if (!form.name?.trim()) { setError('품목명을 입력해 주세요.'); return }
     setSaving(true); setError('')
 
-    // 중복 체크: 같은 code를 가진 다른 품목이 있으면 거부
-    const { data: dup } = await supabase.from('items').select('id').eq('code', form.code.trim()).limit(1)
+    // 중복 체크: 같은 code + production_type 조합에 다른 품목이 있으면 거부
+    // (같은 code라도 자체생산/외주가 다르면 공존 가능)
+    const { data: dup } = await supabase.from('items')
+      .select('id')
+      .eq('code', form.code.trim())
+      .eq('production_type', form.production_type)
+      .is('deleted_at', null)
+      .limit(1)
     if (dup && dup.length > 0 && dup[0].id !== item?.id) {
-      setSaving(false); setError(`이미 사용 중인 품목 코드입니다: ${form.code}`); return
+      setSaving(false)
+      const typeLabel = form.production_type === 'outsourced' ? '외주' : '자체생산'
+      setError(`이미 사용 중인 품목 코드입니다 (${typeLabel}): ${form.code}`)
+      return
     }
 
     // 월별 안전재고 payload 구성 (빈 값은 제외)
