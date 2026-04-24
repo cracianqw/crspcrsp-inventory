@@ -2,14 +2,18 @@ import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import {
-  Calendar, Save, TrendingUp, TrendingDown, Minus, Edit2, Check, X,
+  Calendar, CalendarDays, CalendarRange, Plus, Trash2, Edit2,
+  Factory, Package, Wrench, X, AlertTriangle,
 } from 'lucide-react'
 import {
-  Card, CardHeader, Btn, RegisterBtn, StatCard, Badge,
-  EmptyState, Spinner, Th, Td, LotBadge,
+  Card, CardHeader, Btn, RegisterBtn, IconBtn, StatCard, Badge,
+  Label, Input, SelectInput, Textarea,
+  Overlay, ModalHeader, ModalBody, ModalFooter,
+  ErrorBox, EmptyState, Spinner, Th, Td,
+  AuditStamp, useUserMap,
 } from '../components/UI'
 
-// ── 날짜 유틸 (주: 월 시작, 월~금 근무 기준) ────────────────────
+// ── 날짜 유틸 ─────────────────────────────────────────────────────
 function startOfWeek(d) {
   const x = new Date(d); x.setHours(0, 0, 0, 0)
   const day = x.getDay()
@@ -21,266 +25,1043 @@ function fmtISO(d) {
   const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, '0'), dd = String(d.getDate()).padStart(2, '0')
   return `${y}-${m}-${dd}`
 }
-function fmtShort(d) { return `${d.getMonth() + 1}/${d.getDate()}` }
-function weekLabel(s) { return `${fmtShort(s)} ~ ${fmtShort(addDays(s, 4))}` }
+function fmtKDate(iso) {
+  const d = new Date(iso)
+  return `${d.getMonth() + 1}/${d.getDate()}`
+}
+function fmtKDateFull(iso) {
+  const d = new Date(iso)
+  return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2,'0')}.${String(d.getDate()).padStart(2,'0')}`
+}
+function dayLabel(iso) {
+  const d = new Date(iso)
+  return ['일','월','화','수','목','금','토'][d.getDay()]
+}
+function datesInRange(startIso, endIso) {
+  const out = []
+  const s = new Date(startIso); const e = new Date(endIso)
+  for (let d = new Date(s); d <= e; d = addDays(d, 1)) out.push(fmtISO(d))
+  return out
+}
+function addDaysIso(iso, n) { return fmtISO(addDays(new Date(iso), n)) }
 
 // ── 달성률 색상 ─────────────────────────────────────────────
 function achColor(pct) {
-  if (pct == null) return { color: '#9ca3af', bg: '#f3f4f6', label: '—' }
-  if (pct >= 100) return { color: '#059669', bg: '#d1fae5', label: `${pct}%` }
-  if (pct >= 80)  return { color: '#d97706', bg: '#fef3c7', label: `${pct}%` }
-  return { color: '#dc2626', bg: '#fee2e2', label: `${pct}%` }
+  if (pct == null) return { color: '#9ca3af', bg: '#f3f4f6' }
+  if (pct >= 100) return { color: '#059669', bg: '#d1fae5' }
+  if (pct >= 80)  return { color: '#d97706', bg: '#fef3c7' }
+  return { color: '#dc2626', bg: '#fee2e2' }
 }
 
-// ── 화살표 추이 ─────────────────────────────────────────────
-function TrendArrow({ from, to }) {
-  if (!from) return <span style={{ color: '#9ca3af', fontSize: 13 }}>—</span>
-  const diff = to - from
-  const pct = Math.round((diff / from) * 100)
-  if (pct === 0) return <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 13, color: '#9ca3af' }}><Minus size={12} />0%</span>
-  const up = pct > 0
+// ── 외포장 옵션 ─────────────────────────────────────────────
+const OUTER_PACKING_OPTIONS = [
+  { value: '종이',   label: '종이' },
+  { value: '부직포', label: '부직포' },
+  { value: 'custom', label: '직접입력' },
+]
+
+// ── 기본 행 생성기 ─────────────────────────────────────────
+const mkProductionRow = (date) => ({
+  key: Math.random().toString(36).slice(2),
+  target_date: date || '',
+  item_id: '',
+  produce_qty_bags: '',
+  materials: [{ key: Math.random().toString(36).slice(2), raw_material_id: '', planned_qty: '' }],
+})
+const mkPackagingRow = (date) => ({
+  key: Math.random().toString(36).slice(2),
+  target_date: date || '',
+  item_id: '',
+  pkg_unit: '',
+  box_pkg_unit: '',
+  bags_per_box: '',
+  total_boxes: '',
+  expiry_date: '',
+})
+const mkOtherRow = (date) => ({
+  key: Math.random().toString(36).slice(2),
+  target_date: date || '',
+  custom_item_name: '',
+  work_qty: '',
+  outer_packing: '종이',
+  outer_packing_custom: '',
+  combined_packing: false,
+  combined_unit: '',
+})
+
+// ============================================================
+// 계획 등록/수정 모달
+// ============================================================
+function PlanRegisterModal({ plan, items, rawMaterials, profile, onClose, onSave }) {
+  const isEdit = !!plan?.id
+  const defaultStart = fmtISO(startOfWeek(new Date()))
+  const defaultEnd   = fmtISO(addDays(startOfWeek(new Date()), 6))
+
+  // 헤더 상태
+  const [planType, setPlanType]       = useState(plan?.plan_type || 'weekly')
+  const [periodStart, setPeriodStart] = useState(plan?.period_start || defaultStart)
+  const [periodEnd, setPeriodEnd]     = useState(plan?.period_end   || defaultEnd)
+  const [holidays, setHolidays]       = useState(plan?.holidays || [])
+  const [notes, setNotes]             = useState(plan?.notes || '')
+  const [diffFromWeekly, setDiffFromWeekly] = useState(plan?.differs_from_weekly || false)
+  const [diffReason, setDiffReason]   = useState(plan?.diff_reason || '')
+  const [weeklyRefPlan, setWeeklyRefPlan] = useState(null)
+  const [weeklyRefItems, setWeeklyRefItems] = useState([])
+
+  // 항목 상태 (신규는 빈 행 하나씩, 수정은 useEffect에서 채움)
+  const [tab, setTab] = useState('production')
+  const initDate = plan?.period_start || (planType === 'daily' ? defaultStart : '')
+  const [prodRows, setProdRows]   = useState(() => isEdit ? [] : [mkProductionRow(initDate)])
+  const [pkgRows,  setPkgRows]    = useState(() => isEdit ? [] : [mkPackagingRow(initDate)])
+  const [otherRows, setOtherRows] = useState(() => isEdit ? [] : [mkOtherRow(initDate)])
+
+  const [saving, setSaving] = useState(false)
+  const [error, setError]   = useState('')
+
+  // 계획 유형 토글: 일간이면 종료일을 시작일로 맞춘다
+  function changePlanType(v) {
+    setPlanType(v)
+    if (v === 'daily') setPeriodEnd(periodStart)
+  }
+
+  // 기존 계획 로드 (수정)
+  useEffect(() => {
+    if (!isEdit) return
+    ;(async () => {
+      const { data: itemRows } = await supabase
+        .from('production_plan_items')
+        .select('*')
+        .eq('plan_id', plan.id)
+        .order('sort_order', { ascending: true })
+      const planItemIds = (itemRows || []).map(r => r.id)
+      const { data: matRows } = planItemIds.length
+        ? await supabase.from('production_plan_materials').select('*').in('plan_item_id', planItemIds).order('sort_order')
+        : { data: [] }
+      const matsByItem = {}
+      ;(matRows || []).forEach(m => {
+        if (!matsByItem[m.plan_item_id]) matsByItem[m.plan_item_id] = []
+        matsByItem[m.plan_item_id].push(m)
+      })
+      const pr = [], pk = [], ot = []
+      ;(itemRows || []).forEach(r => {
+        if (r.kind === 'production') {
+          pr.push({
+            key: r.id, _id: r.id,
+            target_date: r.target_date || '',
+            item_id: r.item_id || '',
+            produce_qty_bags: r.produce_qty_bags ?? '',
+            materials: (matsByItem[r.id] || []).map(m => ({
+              key: m.id, _id: m.id,
+              raw_material_id: m.raw_material_id,
+              planned_qty: m.planned_qty ?? '',
+            })).concat(
+              (matsByItem[r.id] || []).length === 0
+                ? [{ key: Math.random().toString(36).slice(2), raw_material_id: '', planned_qty: '' }]
+                : []
+            ),
+          })
+        } else if (r.kind === 'packaging') {
+          pk.push({
+            key: r.id, _id: r.id,
+            target_date: r.target_date || '',
+            item_id: r.item_id || '',
+            pkg_unit: r.pkg_unit || '',
+            box_pkg_unit: r.box_pkg_unit || '',
+            bags_per_box: r.bags_per_box ?? '',
+            total_boxes: r.total_boxes ?? '',
+            expiry_date: r.expiry_date || '',
+          })
+        } else {
+          ot.push({
+            key: r.id, _id: r.id,
+            target_date: r.target_date || '',
+            custom_item_name: r.custom_item_name || '',
+            work_qty: r.work_qty ?? '',
+            outer_packing: r.outer_packing || '종이',
+            outer_packing_custom: r.outer_packing_custom || '',
+            combined_packing: !!r.combined_packing,
+            combined_unit: r.combined_unit || '',
+          })
+        }
+      })
+      setProdRows(pr.length ? pr : [mkProductionRow(planType === 'daily' ? periodStart : '')])
+      setPkgRows(pk.length ? pk : [mkPackagingRow(planType === 'daily' ? periodStart : '')])
+      setOtherRows(ot.length ? ot : [mkOtherRow(planType === 'daily' ? periodStart : '')])
+    })()
+  }, [isEdit]) // eslint-disable-line
+
+  // 일간 모드에서 해당일을 포함하는 주간 계획 로드 (참고용 상단 표시)
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      if (planType !== 'daily' || !periodStart) {
+        if (!cancelled) { setWeeklyRefPlan(null); setWeeklyRefItems([]) }
+        return
+      }
+      const { data: wplans } = await supabase
+        .from('production_plans')
+        .select('*')
+        .eq('plan_type', 'weekly')
+        .is('deleted_at', null)
+        .lte('period_start', periodStart)
+        .gte('period_end',   periodStart)
+        .order('created_at', { ascending: false })
+        .limit(1)
+      if (cancelled) return
+      const wp = (wplans || [])[0]
+      setWeeklyRefPlan(wp || null)
+      if (!wp) { setWeeklyRefItems([]); return }
+      const { data: its } = await supabase
+        .from('production_plan_items')
+        .select('*')
+        .eq('plan_id', wp.id)
+        .order('sort_order')
+      if (!cancelled) {
+        setWeeklyRefItems((its || []).filter(it => !it.target_date || it.target_date === periodStart))
+      }
+    })()
+    return () => { cancelled = true }
+  }, [planType, periodStart])
+
+  const rangeDates = useMemo(
+    () => (periodStart && periodEnd ? datesInRange(periodStart, periodEnd) : []),
+    [periodStart, periodEnd],
+  )
+
+  function toggleHoliday(iso) {
+    setHolidays(p => p.includes(iso) ? p.filter(x => x !== iso) : [...p, iso])
+  }
+
+  function setPeriodPreset(weeks) {
+    const s = periodStart || defaultStart
+    const end = addDaysIso(s, weeks * 7 - 1)
+    setPeriodEnd(end)
+  }
+
+  // ── 행 조작 ──
+  const addProdRow = () => setProdRows(p => [...p, mkProductionRow(planType === 'daily' ? periodStart : '')])
+  const removeProdRow = (k) => setProdRows(p => p.length > 1 ? p.filter(r => r.key !== k) : p)
+  const updProd = (k, patch) => setProdRows(p => p.map(r => r.key === k ? { ...r, ...patch } : r))
+  const addProdMat = (rowKey) => setProdRows(p => p.map(r => r.key === rowKey ? { ...r, materials: [...r.materials, { key: Math.random().toString(36).slice(2), raw_material_id: '', planned_qty: '' }] } : r))
+  const removeProdMat = (rowKey, matKey) => setProdRows(p => p.map(r => r.key === rowKey ? { ...r, materials: r.materials.length > 1 ? r.materials.filter(m => m.key !== matKey) : r.materials } : r))
+  const updProdMat = (rowKey, matKey, patch) => setProdRows(p => p.map(r => r.key === rowKey ? { ...r, materials: r.materials.map(m => m.key === matKey ? { ...m, ...patch } : m) } : r))
+
+  const addPkgRow = () => setPkgRows(p => [...p, mkPackagingRow(planType === 'daily' ? periodStart : '')])
+  const removePkgRow = (k) => setPkgRows(p => p.length > 1 ? p.filter(r => r.key !== k) : p)
+  const updPkg = (k, patch) => setPkgRows(p => p.map(r => {
+    if (r.key !== k) return r
+    const nr = { ...r, ...patch }
+    // 품목 선택 시 소비기한 자동 계산
+    if ('item_id' in patch && patch.item_id) {
+      const it = items.find(i => i.id === patch.item_id)
+      if (it?.shelf_life_days) {
+        const base = new Date()
+        nr.expiry_date = fmtISO(addDays(base, Number(it.shelf_life_days)))
+      }
+    }
+    return nr
+  }))
+
+  const addOtherRow = () => setOtherRows(p => [...p, mkOtherRow(planType === 'daily' ? periodStart : '')])
+  const removeOtherRow = (k) => setOtherRows(p => p.length > 1 ? p.filter(r => r.key !== k) : p)
+  const updOther = (k, patch) => setOtherRows(p => p.map(r => r.key === k ? { ...r, ...patch } : r))
+
+  // ── 유효성 검사 및 저장 ──
+  function validate() {
+    if (!periodStart || !periodEnd) return '기간을 설정해 주세요.'
+    if (new Date(periodEnd) < new Date(periodStart)) return '종료일이 시작일보다 빠를 수 없습니다.'
+
+    const prod = prodRows.filter(r => r.item_id || r.produce_qty_bags)
+    const pkg  = pkgRows.filter(r => r.item_id || r.total_boxes)
+    const other = otherRows.filter(r => r.custom_item_name || r.work_qty)
+    if (prod.length === 0 && pkg.length === 0 && other.length === 0) {
+      return '생산/포장/기타 중 하나 이상의 항목을 입력해 주세요.'
+    }
+    if (planType === 'weekly') {
+      for (const r of prod)  if (r.target_date && !rangeDates.includes(r.target_date)) return '생산계획 날짜가 기간을 벗어났습니다.'
+      for (const r of pkg)   if (r.target_date && !rangeDates.includes(r.target_date)) return '포장계획 날짜가 기간을 벗어났습니다.'
+      for (const r of other) if (r.target_date && !rangeDates.includes(r.target_date)) return '기타작업 날짜가 기간을 벗어났습니다.'
+    }
+    if (planType === 'daily' && diffFromWeekly && !diffReason.trim()) {
+      return '주간계획과 차이 사유를 입력해 주세요.'
+    }
+    return null
+  }
+
+  async function handleSave() {
+    const msg = validate()
+    if (msg) { setError(msg); return }
+    setSaving(true); setError('')
+
+    const header = {
+      plan_type: planType,
+      period_start: periodStart,
+      period_end: planType === 'daily' ? periodStart : periodEnd,
+      holidays,
+      notes: notes || null,
+      differs_from_weekly: planType === 'daily' ? diffFromWeekly : false,
+      diff_reason: planType === 'daily' && diffFromWeekly ? diffReason : null,
+      weekly_plan_id: planType === 'daily' ? (weeklyRefPlan?.id || null) : null,
+    }
+
+    try {
+      let planId = plan?.id
+      if (isEdit) {
+        const { error: e } = await supabase.from('production_plans').update({
+          ...header,
+          updated_by: profile?.id || null,
+          updated_at: new Date().toISOString(),
+        }).eq('id', planId)
+        if (e) throw e
+        // 기존 항목/원재료 전부 삭제 후 재삽입 (단순/안전)
+        const { data: oldItems } = await supabase
+          .from('production_plan_items').select('id').eq('plan_id', planId)
+        const oldIds = (oldItems || []).map(x => x.id)
+        if (oldIds.length > 0) {
+          await supabase.from('production_plan_materials').delete().in('plan_item_id', oldIds)
+          await supabase.from('production_plan_items').delete().in('id', oldIds)
+        }
+      } else {
+        const { data, error: e } = await supabase.from('production_plans').insert({
+          ...header,
+          created_by: profile?.id || null,
+        }).select().single()
+        if (e) throw e
+        planId = data.id
+      }
+
+      const defaultDate = planType === 'daily' ? periodStart : null
+      const itemPayload = []
+      let sort = 0
+      prodRows.forEach(r => {
+        if (!r.item_id && !r.produce_qty_bags) return
+        itemPayload.push({
+          plan_id: planId, kind: 'production',
+          target_date: r.target_date || defaultDate || null,
+          item_id: r.item_id || null,
+          produce_qty_bags: r.produce_qty_bags === '' ? null : Number(r.produce_qty_bags),
+          sort_order: sort++,
+          _materials: r.materials.filter(m => m.raw_material_id && m.planned_qty !== ''),
+        })
+      })
+      pkgRows.forEach(r => {
+        if (!r.item_id && !r.total_boxes) return
+        const bpb = r.bags_per_box === '' ? null : Number(r.bags_per_box)
+        const tb  = r.total_boxes === '' ? null : Number(r.total_boxes)
+        itemPayload.push({
+          plan_id: planId, kind: 'packaging',
+          target_date: r.target_date || defaultDate || null,
+          item_id: r.item_id || null,
+          pkg_unit: r.pkg_unit || null,
+          box_pkg_unit: r.box_pkg_unit || null,
+          bags_per_box: bpb,
+          total_boxes: tb,
+          total_bags: (bpb != null && tb != null) ? bpb * tb : null,
+          expiry_date: r.expiry_date || null,
+          sort_order: sort++,
+        })
+      })
+      otherRows.forEach(r => {
+        if (!r.custom_item_name && !r.work_qty) return
+        itemPayload.push({
+          plan_id: planId, kind: 'other',
+          target_date: r.target_date || defaultDate || null,
+          custom_item_name: r.custom_item_name || null,
+          work_qty: r.work_qty === '' ? null : Number(r.work_qty),
+          outer_packing: r.outer_packing || null,
+          outer_packing_custom: r.outer_packing === 'custom' ? (r.outer_packing_custom || null) : null,
+          combined_packing: !!r.combined_packing,
+          combined_unit: r.combined_packing ? (r.combined_unit || null) : null,
+          sort_order: sort++,
+        })
+      })
+
+      // 항목 insert — production 의 materials 는 insert 후 id 사용
+      for (const it of itemPayload) {
+        const { _materials, ...pay } = it
+        const { data: ins, error: ie } = await supabase.from('production_plan_items').insert(pay).select().single()
+        if (ie) throw ie
+        if (_materials && _materials.length > 0) {
+          const matsPay = _materials.map((m, idx) => ({
+            plan_item_id: ins.id,
+            raw_material_id: m.raw_material_id,
+            planned_qty: Number(m.planned_qty),
+            unit: 'kg',
+            sort_order: idx,
+          }))
+          const { error: me } = await supabase.from('production_plan_materials').insert(matsPay)
+          if (me) throw me
+        }
+      }
+
+      onSave()
+    } catch (err) {
+      setError(err.message)
+    }
+    setSaving(false)
+  }
+
+  // ── 렌더 ──
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 13, fontWeight: 600, color: up ? '#059669' : '#dc2626' }}>
-      {up ? <TrendingUp size={13} /> : <TrendingDown size={13} />}{up ? '+' : ''}{pct}%
-    </span>
+    <Overlay onClose={onClose} size="xl">
+      <ModalHeader sub={isEdit ? '계획 수정' : '새 계획을 등록합니다'}>
+        {isEdit ? '계획 수정' : '계획 등록'}
+      </ModalHeader>
+      <ModalBody>
+        {error && <ErrorBox msg={error} />}
+
+        {/* ── 플랜 유형 / 기간 ── */}
+        <div>
+          <Label required>계획 유형</Label>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {[
+              { v: 'weekly', label: '주간 계획', icon: CalendarRange },
+              { v: 'daily',  label: '일간 계획', icon: CalendarDays },
+            ].map(o => {
+              const Icon = o.icon
+              const active = planType === o.v
+              return (
+                <button key={o.v} type="button" onClick={() => changePlanType(o.v)}
+                  style={{
+                    flex: 1, height: 56, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                    border: active ? '2px solid #004634' : '1.5px solid #e5e7eb',
+                    background: active ? '#004634' : '#fff',
+                    color: active ? '#fff' : '#374151',
+                    borderRadius: 12, cursor: 'pointer', fontSize: 15, fontWeight: 600,
+                  }}>
+                  <Icon size={18} />{o.label}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: planType === 'daily' ? '1fr' : '1fr 1fr auto', gap: 16, alignItems: 'end' }}>
+          <div>
+            <Label required>{planType === 'daily' ? '계획 일자' : '시작일'}</Label>
+            <Input type="date" value={periodStart} onChange={v => { setPeriodStart(v); if (planType === 'daily') setPeriodEnd(v) }} />
+          </div>
+          {planType === 'weekly' && (
+            <>
+              <div>
+                <Label required>종료일</Label>
+                <Input type="date" value={periodEnd} onChange={setPeriodEnd} />
+              </div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button type="button" onClick={() => setPeriodPreset(1)}
+                  style={{ height: 48, padding: '0 14px', border: '1.5px solid #e5e7eb', borderRadius: 10, background: '#fff', color: '#374151', fontWeight: 600, cursor: 'pointer' }}>
+                  1주
+                </button>
+                <button type="button" onClick={() => setPeriodPreset(2)}
+                  style={{ height: 48, padding: '0 14px', border: '1.5px solid #e5e7eb', borderRadius: 10, background: '#fff', color: '#374151', fontWeight: 600, cursor: 'pointer' }}>
+                  2주
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* ── 휴일 체크 ── */}
+        {planType === 'weekly' && rangeDates.length > 0 && (
+          <div>
+            <Label>휴일 체크</Label>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: 8 }}>
+              {rangeDates.map(iso => {
+                const holiday = holidays.includes(iso)
+                return (
+                  <button key={iso} type="button" onClick={() => toggleHoliday(iso)}
+                    style={{
+                      padding: '10px 12px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
+                      border: holiday ? '2px solid #dc2626' : '1.5px solid #e5e7eb',
+                      background: holiday ? '#fef2f2' : '#fff',
+                      color: holiday ? '#dc2626' : '#374151',
+                      borderRadius: 10, cursor: 'pointer', fontWeight: 600,
+                    }}>
+                    <span style={{ fontSize: 12 }}>{dayLabel(iso)} {fmtKDate(iso)}</span>
+                    <span style={{ fontSize: 11, color: holiday ? '#dc2626' : '#9ca3af' }}>{holiday ? '휴일' : '근무'}</span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* ── 일간: 주간 참고 블록 ── */}
+        {planType === 'daily' && weeklyRefPlan && (
+          <div style={{ padding: 16, background: '#FCF4E2', border: '1px solid #D4A96A40', borderRadius: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+              <CalendarRange size={16} color="#92400e" />
+              <span style={{ fontSize: 13, fontWeight: 700, color: '#92400e' }}>
+                {fmtKDateFull(periodStart)} 해당일의 주간 계획
+              </span>
+              <Badge label={`${weeklyRefItems.length}건`} color="#92400e" bg="#fff" />
+            </div>
+            {weeklyRefItems.length === 0 ? (
+              <p style={{ fontSize: 13, color: '#92400e' }}>해당일에 지정된 주간 항목이 없습니다.</p>
+            ) : (
+              <div style={{ display: 'grid', gap: 6 }}>
+                {weeklyRefItems.map(it => {
+                  const name = it.kind === 'other'
+                    ? (it.custom_item_name || '—')
+                    : (items.find(i => i.id === it.item_id)?.name || '—')
+                  const qty = it.kind === 'production' ? `${Number(it.produce_qty_bags || 0).toLocaleString()}봉`
+                            : it.kind === 'packaging'  ? `${Number(it.total_boxes || 0).toLocaleString()}박스`
+                            : `${Number(it.work_qty || 0).toLocaleString()}건`
+                  const kindLabel = it.kind === 'production' ? '생산' : it.kind === 'packaging' ? '포장' : '기타'
+                  return (
+                    <div key={it.id} style={{ display: 'flex', gap: 10, fontSize: 13, color: '#7c2d12', alignItems: 'center' }}>
+                      <Badge label={kindLabel} color="#92400e" bg="#fff" />
+                      <span style={{ fontWeight: 600 }}>{name}</span>
+                      <span style={{ marginLeft: 'auto', fontWeight: 700 }}>{qty}</span>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── 탭 ── */}
+        <div style={{ borderBottom: '1px solid #e5e7eb', display: 'flex', gap: 4 }}>
+          {[
+            { k: 'production', label: '완성품 생산계획', icon: Factory, count: prodRows.length },
+            { k: 'packaging',  label: '완제품 포장계획', icon: Package, count: pkgRows.length },
+            { k: 'other',      label: '기타작업',       icon: Wrench,  count: otherRows.length },
+          ].map(t => {
+            const Icon = t.icon
+            const active = tab === t.k
+            return (
+              <button key={t.k} type="button" onClick={() => setTab(t.k)}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 6,
+                  padding: '10px 18px', fontSize: 14, fontWeight: 600,
+                  border: 'none', borderBottom: `2px solid ${active ? '#004634' : 'transparent'}`,
+                  background: 'transparent', color: active ? '#004634' : '#6b7280',
+                  cursor: 'pointer', marginBottom: -1,
+                }}>
+                <Icon size={15} />{t.label}
+                <span style={{ fontSize: 12, padding: '1px 7px', borderRadius: 99, background: active ? '#004634' : '#e5e7eb', color: active ? '#fff' : '#6b7280' }}>{t.count}</span>
+              </button>
+            )
+          })}
+        </div>
+
+        {/* ── 탭 본문 ── */}
+        {tab === 'production' && (
+          <ProductionTab
+            rows={prodRows} items={items} rawMaterials={rawMaterials}
+            planType={planType} rangeDates={rangeDates}
+            onAdd={addProdRow} onRemove={removeProdRow} onUpdate={updProd}
+            onAddMat={addProdMat} onRemoveMat={removeProdMat} onUpdMat={updProdMat}
+          />
+        )}
+        {tab === 'packaging' && (
+          <PackagingTab
+            rows={pkgRows} items={items}
+            planType={planType} rangeDates={rangeDates}
+            onAdd={addPkgRow} onRemove={removePkgRow} onUpdate={updPkg}
+          />
+        )}
+        {tab === 'other' && (
+          <OtherTab
+            rows={otherRows}
+            planType={planType} rangeDates={rangeDates}
+            onAdd={addOtherRow} onRemove={removeOtherRow} onUpdate={updOther}
+          />
+        )}
+
+        {/* ── 비고 ── */}
+        <div>
+          <Label>비고</Label>
+          <Textarea value={notes} onChange={setNotes} rows={2} placeholder="특이사항..." />
+        </div>
+
+        {/* ── 일간: 주간 차이 체크 ── */}
+        {planType === 'daily' && (
+          <div style={{ padding: 16, background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 12 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+              <input type="checkbox" checked={diffFromWeekly} onChange={e => setDiffFromWeekly(e.target.checked)} style={{ width: 18, height: 18 }} />
+              <AlertTriangle size={16} color="#d97706" />
+              <span style={{ fontSize: 14, fontWeight: 600, color: '#92400e' }}>주간 계획과 차이가 있습니다</span>
+            </label>
+            {diffFromWeekly && (
+              <div style={{ marginTop: 12 }}>
+                <Label required>차이 사유</Label>
+                <Textarea value={diffReason} onChange={setDiffReason} rows={2} placeholder="예) 원재료 입고 지연으로 생산량 조정..." />
+              </div>
+            )}
+          </div>
+        )}
+      </ModalBody>
+      <ModalFooter>
+        <Btn variant="secondary" onClick={onClose}>취소</Btn>
+        <Btn disabled={saving} onClick={handleSave}>{saving ? '저장 중...' : isEdit ? '수정 저장' : '계획 등록'}</Btn>
+      </ModalFooter>
+    </Overlay>
   )
 }
 
+// ── 완성품 생산계획 탭 ──────────────────────────────────────
+function ProductionTab({ rows, items, rawMaterials, planType, rangeDates, onAdd, onRemove, onUpdate, onAddMat, onRemoveMat, onUpdMat }) {
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+        <Label>완성품 생산계획</Label>
+        <button onClick={onAdd} type="button"
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', fontSize: 13, fontWeight: 600, border: '1.5px solid #004634', background: '#004634', color: '#fff', borderRadius: 8, cursor: 'pointer' }}>
+          <Plus size={13} /> 항목 추가
+        </button>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {rows.map(r => (
+          <div key={r.key} style={{ padding: 16, border: '1px solid #e5e7eb', borderRadius: 12, background: '#fafafa' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: planType === 'weekly' ? '160px 1fr 160px 40px' : '1fr 180px 40px', gap: 10, alignItems: 'end' }}>
+              {planType === 'weekly' && (
+                <div>
+                  <Label>날짜</Label>
+                  <SelectInput value={r.target_date} onChange={v => onUpdate(r.key, { target_date: v })}>
+                    <option value="">선택...</option>
+                    {rangeDates.map(d => <option key={d} value={d}>{fmtKDate(d)} ({dayLabel(d)})</option>)}
+                  </SelectInput>
+                </div>
+              )}
+              <div>
+                <Label>완성품</Label>
+                <SelectInput value={r.item_id} onChange={v => onUpdate(r.key, { item_id: v })}>
+                  <option value="">선택...</option>
+                  {items.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
+                </SelectInput>
+              </div>
+              <div>
+                <Label>생산계획 (봉)</Label>
+                <Input type="number" value={r.produce_qty_bags} onChange={v => onUpdate(r.key, { produce_qty_bags: v })} placeholder="0" />
+              </div>
+              <button type="button" onClick={() => onRemove(r.key)}
+                style={{ height: 48, width: 40, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', border: '1.5px solid #fecaca', background: '#fef2f2', color: '#dc2626', borderRadius: 10, cursor: 'pointer' }}>
+                <X size={14} />
+              </button>
+            </div>
+
+            <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px dashed #e5e7eb' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: '#6b7280' }}>원재료 사용 계획</span>
+                <button type="button" onClick={() => onAddMat(r.key)}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '6px 10px', fontSize: 12, fontWeight: 600, border: '1.5px solid #e5e7eb', background: '#fff', color: '#374151', borderRadius: 6, cursor: 'pointer' }}>
+                  <Plus size={12} /> 원재료 추가
+                </button>
+              </div>
+              {r.materials.map(m => (
+                <div key={m.key} style={{ display: 'grid', gridTemplateColumns: '1fr 180px 40px', gap: 10, marginBottom: 6 }}>
+                  <SelectInput value={m.raw_material_id} onChange={v => onUpdMat(r.key, m.key, { raw_material_id: v })}>
+                    <option value="">원재료 선택...</option>
+                    {rawMaterials.map(rm => <option key={rm.id} value={rm.id}>{rm.name} ({rm.code})</option>)}
+                  </SelectInput>
+                  <Input type="number" value={m.planned_qty} onChange={v => onUpdMat(r.key, m.key, { planned_qty: v })} placeholder="사용량 (kg)" />
+                  <button type="button" onClick={() => onRemoveMat(r.key, m.key)}
+                    style={{ height: 48, width: 40, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', border: '1.5px solid #e5e7eb', background: '#fff', color: '#6b7280', borderRadius: 10, cursor: 'pointer' }}>
+                    <X size={13} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ── 완제품 포장계획 탭 ──────────────────────────────────────
+function PackagingTab({ rows, items, planType, rangeDates, onAdd, onRemove, onUpdate }) {
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+        <Label>완제품 포장계획</Label>
+        <button onClick={onAdd} type="button"
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', fontSize: 13, fontWeight: 600, border: '1.5px solid #004634', background: '#004634', color: '#fff', borderRadius: 8, cursor: 'pointer' }}>
+          <Plus size={13} /> 항목 추가
+        </button>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {rows.map(r => {
+          const bpb = Number(r.bags_per_box || 0)
+          const tb  = Number(r.total_boxes || 0)
+          const totalBags = bpb * tb
+          return (
+            <div key={r.key} style={{ padding: 16, border: '1px solid #e5e7eb', borderRadius: 12, background: '#fafafa' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: planType === 'weekly' ? '140px 1fr 1fr 40px' : '1fr 1fr 40px', gap: 10, alignItems: 'end' }}>
+                {planType === 'weekly' && (
+                  <div>
+                    <Label>날짜</Label>
+                    <SelectInput value={r.target_date} onChange={v => onUpdate(r.key, { target_date: v })}>
+                      <option value="">선택...</option>
+                      {rangeDates.map(d => <option key={d} value={d}>{fmtKDate(d)} ({dayLabel(d)})</option>)}
+                    </SelectInput>
+                  </div>
+                )}
+                <div>
+                  <Label>완성품</Label>
+                  <SelectInput value={r.item_id} onChange={v => onUpdate(r.key, { item_id: v })}>
+                    <option value="">선택...</option>
+                    {items.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
+                  </SelectInput>
+                </div>
+                <div>
+                  <Label>포장단위</Label>
+                  <Input value={r.pkg_unit} onChange={v => onUpdate(r.key, { pkg_unit: v })} placeholder="예: 4g 5매" />
+                </div>
+                <button type="button" onClick={() => onRemove(r.key)}
+                  style={{ height: 48, width: 40, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', border: '1.5px solid #fecaca', background: '#fef2f2', color: '#dc2626', borderRadius: 10, cursor: 'pointer' }}>
+                  <X size={14} />
+                </button>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 140px 140px 1fr', gap: 10, marginTop: 10, alignItems: 'end' }}>
+                <div>
+                  <Label>박스포장단위</Label>
+                  <Input value={r.box_pkg_unit} onChange={v => onUpdate(r.key, { box_pkg_unit: v })} placeholder="예: 24봉/박스" />
+                </div>
+                <div>
+                  <Label>박스당 봉 수</Label>
+                  <Input type="number" value={r.bags_per_box} onChange={v => onUpdate(r.key, { bags_per_box: v })} placeholder="24" />
+                </div>
+                <div>
+                  <Label>총 박스</Label>
+                  <Input type="number" value={r.total_boxes} onChange={v => onUpdate(r.key, { total_boxes: v })} placeholder="0" />
+                </div>
+                <div>
+                  <Label>소비기한</Label>
+                  <Input type="date" value={r.expiry_date} onChange={v => onUpdate(r.key, { expiry_date: v })} />
+                </div>
+              </div>
+              {(totalBags > 0) && (
+                <div style={{ marginTop: 10, padding: '8px 12px', background: '#f0fdf4', borderRadius: 8, border: '1px solid #86efac', fontSize: 13, color: '#166534' }}>
+                  총 사용수량: <b>{totalBags.toLocaleString()}봉</b> (= {tb.toLocaleString()}박스 × {bpb}봉)
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+// ── 기타작업 탭 ──────────────────────────────────────────────
+function OtherTab({ rows, planType, rangeDates, onAdd, onRemove, onUpdate }) {
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+        <Label>기타작업</Label>
+        <button onClick={onAdd} type="button"
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', fontSize: 13, fontWeight: 600, border: '1.5px solid #004634', background: '#004634', color: '#fff', borderRadius: 8, cursor: 'pointer' }}>
+          <Plus size={13} /> 항목 추가
+        </button>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {rows.map(r => (
+          <div key={r.key} style={{ padding: 16, border: '1px solid #e5e7eb', borderRadius: 12, background: '#fafafa' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: planType === 'weekly' ? '140px 1fr 140px 180px 40px' : '1fr 140px 180px 40px', gap: 10, alignItems: 'end' }}>
+              {planType === 'weekly' && (
+                <div>
+                  <Label>날짜</Label>
+                  <SelectInput value={r.target_date} onChange={v => onUpdate(r.key, { target_date: v })}>
+                    <option value="">선택...</option>
+                    {rangeDates.map(d => <option key={d} value={d}>{fmtKDate(d)} ({dayLabel(d)})</option>)}
+                  </SelectInput>
+                </div>
+              )}
+              <div>
+                <Label>품목 (직접입력)</Label>
+                <Input value={r.custom_item_name} onChange={v => onUpdate(r.key, { custom_item_name: v })} placeholder="품목명" />
+              </div>
+              <div>
+                <Label>작업수량</Label>
+                <Input type="number" value={r.work_qty} onChange={v => onUpdate(r.key, { work_qty: v })} placeholder="0" />
+              </div>
+              <div>
+                <Label>외포장</Label>
+                <SelectInput value={r.outer_packing} onChange={v => onUpdate(r.key, { outer_packing: v })}>
+                  {OUTER_PACKING_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </SelectInput>
+              </div>
+              <button type="button" onClick={() => onRemove(r.key)}
+                style={{ height: 48, width: 40, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', border: '1.5px solid #fecaca', background: '#fef2f2', color: '#dc2626', borderRadius: 10, cursor: 'pointer' }}>
+                <X size={14} />
+              </button>
+            </div>
+            {r.outer_packing === 'custom' && (
+              <div style={{ marginTop: 10 }}>
+                <Label>외포장 (직접입력)</Label>
+                <Input value={r.outer_packing_custom} onChange={v => onUpdate(r.key, { outer_packing_custom: v })} placeholder="외포장 자재명" />
+              </div>
+            )}
+            <div style={{ marginTop: 10, display: 'flex', gap: 12, alignItems: 'end' }}>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <Label>합포장</Label>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  {[
+                    { v: true,  label: '예' },
+                    { v: false, label: '아니요' },
+                  ].map(o => {
+                    const active = r.combined_packing === o.v
+                    return (
+                      <button key={String(o.v)} type="button" onClick={() => onUpdate(r.key, { combined_packing: o.v })}
+                        style={{
+                          padding: '0 16px', height: 40,
+                          border: active ? '2px solid #004634' : '1.5px solid #e5e7eb',
+                          background: active ? '#004634' : '#fff',
+                          color: active ? '#fff' : '#374151',
+                          borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600,
+                        }}>
+                        {o.label}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+              {r.combined_packing && (
+                <div style={{ flex: 1 }}>
+                  <Label>합포장 단위</Label>
+                  <Input value={r.combined_unit} onChange={v => onUpdate(r.key, { combined_unit: v })} placeholder="예: 2개 묶음" />
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ============================================================
+// 메인 페이지
+// ============================================================
 export default function ProductionPlan() {
-  const { user } = useAuth()
+  const { profile, isSeniorManager } = useAuth()
+  const userMap = useUserMap()
+
+  const [plans, setPlans] = useState([])
   const [items, setItems] = useState([])
+  const [rawMaterials, setRawMaterials] = useState([])
+  const [planItemsByPlan, setPlanItemsByPlan] = useState({})  // {planId: [items...]}
+  const [actuals, setActuals] = useState({})                  // {item_id: output sum today}
+
   const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
-  const [weekOffset, setWeekOffset] = useState(0)     // 0: 이번 주, 1: 다음 주
-  const [mode, setMode] = useState('boxes')            // 'boxes' | 'sheets'
-  const [plans, setPlans] = useState({})               // {iso: {itemId: qty}}
-  const [yearPlans, setYearPlans] = useState({})       // {itemId: qty}
-  const [actuals, setActuals] = useState({})           // {itemId: output}
-  const [draft, setDraft] = useState({})               // {itemId: qty(boxes)}
-  const [editingRSP, setEditingRSP] = useState(null)
-  const [editVal, setEditVal] = useState('')
-  const [toast, setToast] = useState('')
+  const [typeFilter, setTypeFilter] = useState('all')         // all | weekly | daily
+  const [showModal, setShowModal] = useState(false)
+  const [editPlan, setEditPlan] = useState(null)
 
-  const thisWeek = useMemo(() => startOfWeek(new Date()), [])
-  const weekStart = useMemo(() => addDays(thisWeek, weekOffset * 7), [thisWeek, weekOffset])
-  const weekEnd   = useMemo(() => addDays(weekStart, 4), [weekStart])
-  const currentIso = fmtISO(weekStart)
-
-  useEffect(() => { fetchAll() }, [weekOffset])
+  useEffect(() => { fetchAll() }, [])
 
   async function fetchAll() {
     setLoading(true)
-    const w4ago   = fmtISO(addDays(weekStart, -28))
-    const yearAgo = fmtISO(addDays(weekStart, -364))
+    const todayIso = fmtISO(new Date())
 
-    const [itemsR, planR, yearR, prodR] = await Promise.all([
-      supabase.from('items').select('*').eq('is_active', true).is('deleted_at', null).order('code'),
-      supabase.from('weekly_plans').select('*').gte('week_start', w4ago).lte('week_start', currentIso),
-      supabase.from('weekly_plans').select('*').eq('week_start', yearAgo),
+    const [plansR, itemsR, rawR, actR] = await Promise.all([
+      supabase.from('production_plans')
+        .select('*')
+        .is('deleted_at', null)
+        .order('period_start', { ascending: false }),
+      supabase.from('items')
+        .select('*')
+        .eq('is_active', true)
+        .is('deleted_at', null)
+        .order('name'),
+      supabase.from('raw_materials')
+        .select('*')
+        .eq('is_active', true)
+        .is('deleted_at', null)
+        .order('name'),
       supabase.from('production_records')
-        .select('item_id, output_qty')
-        .gte('production_date', currentIso)
-        .lte('production_date', fmtISO(weekEnd)),
+        .select('item_id, output_qty, production_date')
+        .eq('production_date', todayIso),
     ])
 
+    const loadedPlans = plansR.data || []
+    const planIds = loadedPlans.map(p => p.id)
+    const { data: itemsByPlan } = planIds.length
+      ? await supabase.from('production_plan_items').select('*').in('plan_id', planIds).order('sort_order')
+      : { data: [] }
     const grouped = {}
-    ;(planR.data || []).forEach(p => {
-      if (!grouped[p.week_start]) grouped[p.week_start] = {}
-      grouped[p.week_start][p.item_id] = Number(p.planned_qty) || 0
+    ;(itemsByPlan || []).forEach(pi => {
+      if (!grouped[pi.plan_id]) grouped[pi.plan_id] = []
+      grouped[pi.plan_id].push(pi)
     })
-    const ya = {}
-    ;(yearR.data || []).forEach(p => { ya[p.item_id] = Number(p.planned_qty) || 0 })
-    const act = {}
-    ;(prodR.data || []).forEach(r => { act[r.item_id] = (act[r.item_id] || 0) + (Number(r.output_qty) || 0) })
 
-    const d = {}
-    ;(itemsR.data || []).forEach(it => { d[it.id] = grouped[currentIso]?.[it.id] || '' })
+    const actByItem = {}
+    ;(actR.data || []).forEach(r => {
+      actByItem[r.item_id] = (actByItem[r.item_id] || 0) + Number(r.output_qty || 0)
+    })
 
+    setPlans(loadedPlans)
     setItems(itemsR.data || [])
-    setPlans(grouped); setYearPlans(ya); setActuals(act); setDraft(d)
+    setRawMaterials(rawR.data || [])
+    setPlanItemsByPlan(grouped)
+    setActuals(actByItem)
     setLoading(false)
   }
 
-  function setBoxQty(itemId, raw) {
-    const rsp = items.find(i => i.id === itemId)?.raw_sheets_per_unit || 1
-    if (raw === '') { setDraft(p => ({ ...p, [itemId]: '' })); return }
-    const num = Number(raw); if (isNaN(num) || num < 0) return
-    const boxes = mode === 'sheets' ? Math.round(num / rsp) : num
-    setDraft(p => ({ ...p, [itemId]: boxes }))
-  }
-  function displayVal(itemId) {
-    const v = draft[itemId]
-    if (v === '' || v == null) return ''
-    const rsp = items.find(i => i.id === itemId)?.raw_sheets_per_unit || 1
-    return mode === 'sheets' ? v * rsp : v
+  async function softDelete(p) {
+    if (!isSeniorManager) return
+    if (!confirm('이 계획을 삭제하시겠습니까?\n\n삭제 내역에서 복구할 수 있습니다.')) return
+    const { error } = await supabase.from('production_plans').update({
+      deleted_at: new Date().toISOString(),
+      deleted_by: profile?.id || null,
+    }).eq('id', p.id)
+    if (error) alert(error.message); else fetchAll()
   }
 
-  async function savePlan() {
-    setSaving(true); setToast('')
-    const rows = items
-      .filter(it => draft[it.id] !== '' && draft[it.id] != null && Number(draft[it.id]) > 0)
-      .map(it => ({
-        week_start: currentIso,
-        item_id: it.id,
-        planned_qty: Number(draft[it.id]),
-        created_by: user?.id || null,
-      }))
-    const zeroItems = items
-      .filter(it => (draft[it.id] === '' || draft[it.id] == null || Number(draft[it.id]) === 0) && plans[currentIso]?.[it.id])
-      .map(it => it.id)
+  const todayIso = fmtISO(new Date())
 
-    let err = null
-    if (rows.length > 0) {
-      const { error } = await supabase.from('weekly_plans').upsert(rows, { onConflict: 'week_start,item_id' })
-      if (error) err = error
-    }
-    if (!err && zeroItems.length > 0) {
-      const { error } = await supabase.from('weekly_plans').delete().eq('week_start', currentIso).in('item_id', zeroItems)
-      if (error) err = error
-    }
-    setSaving(false)
-    setToast(err ? `오류: ${err.message}` : '저장 완료')
-    setTimeout(() => setToast(''), 2500)
-    if (!err) fetchAll()
+  // 오늘 기준 진행율 (계획 대비 실적, 당일 생산량)
+  function todayProgress(plan) {
+    const pitems = planItemsByPlan[plan.id] || []
+    const prodItems = pitems.filter(pi => pi.kind === 'production' && pi.item_id && (
+      !pi.target_date || pi.target_date === todayIso
+    ))
+    if (prodItems.length === 0) return null
+    const planned = prodItems.reduce((s, pi) => s + Number(pi.produce_qty_bags || 0), 0)
+    if (planned <= 0) return null
+    const actual  = prodItems.reduce((s, pi) => s + (actuals[pi.item_id] || 0), 0)
+    return Math.round((actual / planned) * 100)
   }
 
-  async function saveRSP(itemId) {
-    const n = Number(editVal)
-    if (!n || n < 1) { setEditingRSP(null); setEditVal(''); return }
-    await supabase.from('items').update({ raw_sheets_per_unit: n }).eq('id', itemId)
-    setEditingRSP(null); setEditVal('')
-    fetchAll()
+  const filtered = plans.filter(p => typeFilter === 'all' || p.plan_type === typeFilter)
+
+  // 요약 지표
+  const weeklyCount = plans.filter(p => p.plan_type === 'weekly').length
+  const dailyCount  = plans.filter(p => p.plan_type === 'daily').length
+  const todayPlans  = plans.filter(p => p.period_start <= todayIso && p.period_end >= todayIso)
+
+  let todayAvgProgress = null
+  {
+    const vals = todayPlans.map(todayProgress).filter(v => v != null)
+    if (vals.length > 0) todayAvgProgress = Math.round(vals.reduce((a, b) => a + b, 0) / vals.length)
   }
-
-  // ── 집계 ──
-  const planTotal = items.reduce((s, it) => s + (plans[currentIso]?.[it.id] || 0), 0)
-  const actualTotal = items.reduce((s, it) => s + (actuals[it.id] || 0), 0)
-  const achievement = planTotal > 0 ? Math.round((actualTotal / planTotal) * 100) : null
-  const ach = achColor(achievement)
-
-  const weekOffsets = [-4, -3, -2, -1, 0]
-  const weekStarts  = weekOffsets.map(n => addDays(weekStart, n * 7))
-  const weekIsos    = weekStarts.map(fmtISO)
 
   return (
     <div>
-      {/* 헤더 */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 24 }}>
-        <h1 style={{ fontSize: 28, fontWeight: 700, color: '#111827' }}>생산 계획</h1>
-        <RegisterBtn onClick={savePlan} disabled={saving || loading}>
-          <Save size={20} /> {saving ? '저장 중...' : '계획 저장'}
-        </RegisterBtn>
-        {toast && <span style={{ fontSize: 14, color: toast.startsWith('오류') ? '#dc2626' : '#059669', fontWeight: 600 }}>{toast}</span>}
-      </div>
-
-      {/* 컨트롤 바: 주 선택 + 입력 단위 */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 24, flexWrap: 'wrap' }}>
-        <div style={{ display: 'inline-flex', background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: 4 }}>
-          {[{ v: 0, label: '이번 주' }, { v: 1, label: '다음 주' }].map(o => (
-            <button key={o.v} onClick={() => setWeekOffset(o.v)}
-              style={{
-                padding: '10px 20px', fontSize: 15, fontWeight: 600,
-                border: 'none', borderRadius: 8, cursor: 'pointer',
-                background: weekOffset === o.v ? '#004634' : 'transparent',
-                color: weekOffset === o.v ? '#fff' : '#6b7280',
-                transition: 'all 0.15s',
-              }}>
-              {o.label}
-            </button>
-          ))}
-        </div>
-        <Badge label={weekLabel(weekStart)} color="#004634" bg="#FCF4E2" />
-
-        <div style={{ marginLeft: 'auto', display: 'inline-flex', background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: 4 }}>
-          {[{ v: 'boxes', label: '박스 기준' }, { v: 'sheets', label: '장 기준' }].map(o => (
-            <button key={o.v} onClick={() => setMode(o.v)}
-              style={{
-                padding: '10px 16px', fontSize: 14, fontWeight: 600,
-                border: 'none', borderRadius: 8, cursor: 'pointer',
-                background: mode === o.v ? '#B2EF8B' : 'transparent',
-                color: mode === o.v ? '#004634' : '#6b7280',
-              }}>
-              {o.label}
-            </button>
-          ))}
-        </div>
+        <h1 style={{ fontSize: 28, fontWeight: 700, color: '#111827' }}>생산 계획</h1>
+        <RegisterBtn onClick={() => { setEditPlan(null); setShowModal(true) }}>
+          <Plus size={20} /> 계획 등록
+        </RegisterBtn>
       </div>
 
       {/* 요약 카드 */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16, marginBottom: 24 }}>
-        <StatCard label="이번 주 계획 총량" value={planTotal.toLocaleString()} unit="박스" />
-        <StatCard label="이번 주 실적 누계" value={actualTotal.toLocaleString()} unit="박스" />
+        <StatCard label="전체 계획" value={plans.length} unit="건" sub={`주간 ${weeklyCount} · 일간 ${dailyCount}`} />
+        <StatCard label="오늘 진행중" value={todayPlans.length} unit="건" sub={fmtKDateFull(todayIso)} />
         <div style={{
           background: '#fff', borderRadius: 12, padding: 24, border: '1px solid #e9ecef',
           boxShadow: '0 4px 12px rgba(0,0,0,0.06)',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-            <span style={{ fontSize: 14, fontWeight: 500, color: '#6b7280' }}>달성률</span>
-            <Badge label={ach.label} color={ach.color} bg={ach.bg} />
+            <span style={{ fontSize: 14, fontWeight: 500, color: '#6b7280' }}>오늘 평균 진행율</span>
           </div>
-          <p style={{ fontSize: 40, fontWeight: 700, color: ach.color, lineHeight: 1.1 }}>
-            {achievement != null ? `${achievement}` : '—'}
-            {achievement != null && <span style={{ fontSize: 16, fontWeight: 400, color: '#9ca3af', marginLeft: 6 }}>%</span>}
+          <p style={{ fontSize: 40, fontWeight: 700, color: achColor(todayAvgProgress).color, lineHeight: 1.1 }}>
+            {todayAvgProgress != null ? `${todayAvgProgress}` : '—'}
+            {todayAvgProgress != null && <span style={{ fontSize: 16, fontWeight: 400, color: '#9ca3af', marginLeft: 6 }}>%</span>}
           </p>
-          <p style={{ fontSize: 13, color: '#9ca3af', marginTop: 8 }}>계획 대비 실적</p>
+          <p style={{ fontSize: 13, color: '#9ca3af', marginTop: 8 }}>오늘자 생산 실적 기준</p>
         </div>
-        <StatCard label="등록 품목" value={items.length} unit="종" sub="활성 품목 기준" />
       </div>
 
-      {/* 계획 입력 테이블 */}
+      {/* 필터 */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+        {[
+          { k: 'all',    label: '전체' },
+          { k: 'weekly', label: '주간' },
+          { k: 'daily',  label: '일간' },
+        ].map(t => {
+          const active = typeFilter === t.k
+          return (
+            <button key={t.k} onClick={() => setTypeFilter(t.k)}
+              style={{
+                padding: '10px 18px', fontSize: 14, fontWeight: 600,
+                border: active ? '1.5px solid #004634' : '1.5px solid #e5e7eb',
+                background: active ? '#004634' : '#fff',
+                color: active ? '#fff' : '#374151',
+                borderRadius: 10, cursor: 'pointer',
+              }}>
+              {t.label}
+            </button>
+          )
+        })}
+      </div>
+
+      {/* 목록 */}
       <Card>
-        <CardHeader title={`${weekLabel(weekStart)} 계획 입력`} sub={weekOffset === 0 ? '이번 주' : '다음 주'} />
+        <CardHeader title="등록된 생산 계획" sub={`${filtered.length}건 · 최신순`} />
         {loading ? (
           <div style={{ padding: '72px 0', display: 'flex', justifyContent: 'center' }}><Spinner /></div>
-        ) : items.length === 0 ? (
-          <EmptyState icon={Calendar} text="활성 품목이 없습니다" />
+        ) : filtered.length === 0 ? (
+          <EmptyState icon={Calendar} text="등록된 계획이 없습니다" sub={`"계획 등록" 버튼으로 새 계획을 추가하세요`} />
         ) : (
           <div className="tbl-wrap"><table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead><tr>{['품목', '품목보고번호', '규격', '박스당 장수', `계획 (${mode === 'sheets' ? '장' : '박스'})`, '변환 표시'].map(h => <Th key={h}>{h}</Th>)}</tr></thead>
+            <thead><tr>{['유형', '기간', '항목 수', '진행율', '작성자', '최종 수정', isSeniorManager ? '관리' : ''].filter(Boolean).map(h => <Th key={h}>{h}</Th>)}</tr></thead>
             <tbody>
-              {items.map((it, i) => {
-                const rsp = it.raw_sheets_per_unit || 1
-                const boxVal = Number(draft[it.id] || 0)
-                const sheetVal = boxVal * rsp
+              {filtered.map((p, i) => {
+                const pitems = planItemsByPlan[p.id] || []
+                const prodCount = pitems.filter(x => x.kind === 'production').length
+                const pkgCount  = pitems.filter(x => x.kind === 'packaging').length
+                const otherCount = pitems.filter(x => x.kind === 'other').length
+                const withinToday = p.period_start <= todayIso && p.period_end >= todayIso
+                const pct = withinToday ? todayProgress(p) : null
+                const c = achColor(pct)
                 return (
-                  <tr key={it.id} style={{ backgroundColor: i % 2 === 0 ? '#fff' : '#fafafa' }}>
-                    <Td><span style={{ fontWeight: 500, color: '#111827' }}>{it.name}</span></Td>
-                    <Td><LotBadge>{it.code}</LotBadge></Td>
-                    <Td style={{ color: '#6b7280' }}>{it.packaging_type || '—'} {it.sheet_count ? `${it.sheet_count}매` : ''} {it.weight_g ? `· ${it.weight_g}g` : ''}</Td>
+                  <tr key={p.id} style={{ backgroundColor: i % 2 === 0 ? '#fff' : '#fafafa' }}>
                     <Td>
-                      {editingRSP === it.id ? (
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                          <input type="number" value={editVal} autoFocus onChange={e => setEditVal(e.target.value)}
-                            style={{ width: 60, height: 32, padding: '0 8px', fontSize: 14, border: '1.5px solid #004634', borderRadius: 6, outline: 'none' }} />
-                          <button onClick={() => saveRSP(it.id)} style={{ width: 28, height: 28, border: 'none', background: '#004634', color: '#fff', borderRadius: 6, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}><Check size={14} /></button>
-                          <button onClick={() => { setEditingRSP(null); setEditVal('') }} style={{ width: 28, height: 28, border: '1px solid #e5e7eb', background: '#fff', color: '#6b7280', borderRadius: 6, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}><X size={14} /></button>
-                        </span>
-                      ) : (
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                          <span style={{ fontWeight: 600, color: '#111827' }}>{rsp}</span>
-                          <span style={{ color: '#9ca3af', fontSize: 13 }}>장/박스</span>
-                          <button onClick={() => { setEditingRSP(it.id); setEditVal(String(rsp)) }}
-                            style={{ width: 24, height: 24, border: '1px solid #e5e7eb', background: '#fff', color: '#6b7280', borderRadius: 6, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
-                            <Edit2 size={12} />
-                          </button>
+                      <Badge
+                        label={p.plan_type === 'weekly' ? '주간' : '일간'}
+                        color={p.plan_type === 'weekly' ? '#004634' : '#C49A5A'}
+                        bg={p.plan_type === 'weekly' ? '#d1fae5' : '#FCF4E2'}
+                      />
+                      {p.plan_type === 'daily' && p.differs_from_weekly && (
+                        <span style={{ marginLeft: 6 }}>
+                          <Badge label="주간차이" color="#dc2626" bg="#fee2e2" />
                         </span>
                       )}
                     </Td>
                     <Td>
-                      <input type="number" min={0}
-                        value={displayVal(it.id)}
-                        onChange={e => setBoxQty(it.id, e.target.value)}
-                        style={{ width: 140, height: 40, padding: '0 12px', fontSize: 15, fontWeight: 600, border: '1.5px solid #e5e7eb', borderRadius: 8, outline: 'none' }}
-                        onFocus={e => (e.target.style.borderColor = '#004634')}
-                        onBlur={e => (e.target.style.borderColor = '#e5e7eb')} />
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                        <span style={{ fontWeight: 600, color: '#111827' }}>
+                          {fmtKDateFull(p.period_start)}
+                          {p.period_start !== p.period_end && ` ~ ${fmtKDateFull(p.period_end)}`}
+                        </span>
+                        {(p.holidays?.length || 0) > 0 && (
+                          <span style={{ fontSize: 12, color: '#dc2626' }}>휴일 {p.holidays.length}일</span>
+                        )}
+                      </div>
                     </Td>
-                    <Td style={{ color: '#6b7280' }}>
-                      {boxVal > 0 ? (
-                        mode === 'boxes'
-                          ? <>= <b style={{ color: '#111827' }}>{sheetVal.toLocaleString()}</b> 장</>
-                          : <>= <b style={{ color: '#111827' }}>{boxVal.toLocaleString()}</b> 박스</>
-                      ) : '—'}
+                    <Td>
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        {prodCount > 0 && <Badge label={`생산 ${prodCount}`} color="#004634" bg="#d1fae5" />}
+                        {pkgCount > 0  && <Badge label={`포장 ${pkgCount}`}  color="#1e40af" bg="#dbeafe" />}
+                        {otherCount > 0 && <Badge label={`기타 ${otherCount}`} color="#92400e" bg="#fef3c7" />}
+                        {pitems.length === 0 && <span style={{ color: '#d1d5db' }}>—</span>}
+                      </div>
                     </Td>
+                    <Td>
+                      {pct == null ? <span style={{ color: '#d1d5db' }}>—</span> : (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <div style={{ flex: 1, maxWidth: 120, height: 8, background: '#f3f4f6', borderRadius: 99, overflow: 'hidden' }}>
+                            <div style={{ width: `${Math.min(pct, 150) / 1.5}%`, height: '100%', background: c.color, borderRadius: 99 }} />
+                          </div>
+                          <span style={{ fontSize: 14, fontWeight: 700, color: c.color, minWidth: 48, textAlign: 'right' }}>{pct}%</span>
+                        </div>
+                      )}
+                    </Td>
+                    <Td><AuditStamp userName={userMap[p.created_by]} at={p.created_at} /></Td>
+                    <Td><AuditStamp userName={userMap[p.updated_by]} at={p.updated_at} /></Td>
+                    {isSeniorManager && (
+                      <Td>
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <IconBtn icon={Edit2} onClick={() => { setEditPlan(p); setShowModal(true) }} label="수정" />
+                          <IconBtn icon={Trash2} variant="danger" onClick={() => softDelete(p)} label="삭제" />
+                        </div>
+                      </Td>
+                    )}
                   </tr>
                 )
               })}
@@ -289,117 +1070,16 @@ export default function ProductionPlan() {
         )}
       </Card>
 
-      {/* 이전 4주 + 전년 동기 비교 */}
-      <div style={{ marginTop: 24 }}>
-        <Card>
-          <CardHeader title="이전 4주 · 전년 동기 비교" sub="품목별 주간 계획량 (박스)" />
-          {loading ? (
-            <div style={{ padding: '72px 0', display: 'flex', justifyContent: 'center' }}><Spinner /></div>
-          ) : (
-            <div className="tbl-wrap"><table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead>
-                <tr>
-                  <Th>품목</Th>
-                  {weekStarts.map((ws, idx) => (
-                    <Th key={idx}>
-                      {idx === 4 ? '이번 주' : `W-${4 - idx}`}
-                      <div style={{ fontSize: 11, fontWeight: 400, color: '#9ca3af', marginTop: 2 }}>{fmtShort(ws)}</div>
-                    </Th>
-                  ))}
-                  <Th>전년 동기</Th>
-                  <Th>추이 (WoW)</Th>
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((it, i) => {
-                  const vals = weekIsos.map(iso => plans[iso]?.[it.id] || 0)
-                  const prevWeek = vals[3], curr = vals[4]
-                  const ya = yearPlans[it.id] || 0
-                  return (
-                    <tr key={it.id} style={{ backgroundColor: i % 2 === 0 ? '#fff' : '#fafafa' }}>
-                      <Td><span style={{ fontWeight: 500, color: '#111827' }}>{it.name}</span></Td>
-                      {vals.map((v, idx) => (
-                        <Td key={idx} style={{ textAlign: 'right', fontWeight: idx === 4 ? 700 : 500, color: idx === 4 ? '#004634' : '#374151' }}>
-                          {v ? v.toLocaleString() : <span style={{ color: '#d1d5db' }}>—</span>}
-                        </Td>
-                      ))}
-                      <Td style={{ textAlign: 'right', color: '#6b7280' }}>
-                        {ya ? ya.toLocaleString() : <span style={{ color: '#d1d5db' }}>—</span>}
-                      </Td>
-                      <Td><TrendArrow from={prevWeek} to={curr} /></Td>
-                    </tr>
-                  )
-                })}
-                {/* 합계 */}
-                <tr style={{ background: '#f5f5f0', fontWeight: 700 }}>
-                  <Td><span style={{ fontWeight: 700, color: '#111827' }}>합계</span></Td>
-                  {weekIsos.map((iso, idx) => {
-                    const sum = items.reduce((s, it) => s + (plans[iso]?.[it.id] || 0), 0)
-                    return <Td key={idx} style={{ textAlign: 'right', fontWeight: 700, color: idx === 4 ? '#004634' : '#111827' }}>{sum.toLocaleString()}</Td>
-                  })}
-                  <Td style={{ textAlign: 'right', fontWeight: 700, color: '#6b7280' }}>
-                    {Object.values(yearPlans).reduce((s, v) => s + v, 0).toLocaleString()}
-                  </Td>
-                  <Td>
-                    <TrendArrow
-                      from={items.reduce((s, it) => s + (plans[weekIsos[3]]?.[it.id] || 0), 0)}
-                      to={planTotal}
-                    />
-                  </Td>
-                </tr>
-              </tbody>
-            </table></div>
-          )}
-        </Card>
-      </div>
-
-      {/* 계획 대비 실적 */}
-      <div style={{ marginTop: 24 }}>
-        <Card>
-          <CardHeader title="이번 주 계획 대비 실적" sub="실적 = production_records.output_qty" />
-          {loading ? (
-            <div style={{ padding: '72px 0', display: 'flex', justifyContent: 'center' }}><Spinner /></div>
-          ) : items.length === 0 ? (
-            <EmptyState icon={Calendar} text="품목이 없습니다" />
-          ) : (
-            <div className="tbl-wrap"><table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead><tr>{['품목', '품목보고번호', '계획 (박스)', '실적 (박스)', '달성률', '상태'].map(h => <Th key={h}>{h}</Th>)}</tr></thead>
-              <tbody>
-                {items.map((it, i) => {
-                  const plan = plans[currentIso]?.[it.id] || 0
-                  const actual = actuals[it.id] || 0
-                  const pct = plan > 0 ? Math.round((actual / plan) * 100) : null
-                  const c = achColor(pct)
-                  return (
-                    <tr key={it.id} style={{ backgroundColor: i % 2 === 0 ? '#fff' : '#fafafa' }}>
-                      <Td><span style={{ fontWeight: 500, color: '#111827' }}>{it.name}</span></Td>
-                      <Td><LotBadge>{it.code}</LotBadge></Td>
-                      <Td style={{ textAlign: 'right', fontWeight: 600 }}>{plan ? plan.toLocaleString() : <span style={{ color: '#d1d5db' }}>—</span>}</Td>
-                      <Td style={{ textAlign: 'right', fontWeight: 600, color: '#004634' }}>{actual ? actual.toLocaleString() : <span style={{ color: '#d1d5db' }}>—</span>}</Td>
-                      <Td>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                          <div style={{ flex: 1, maxWidth: 120, height: 8, background: '#f3f4f6', borderRadius: 99, overflow: 'hidden' }}>
-                            <div style={{ width: `${Math.min(pct || 0, 150) / 1.5}%`, height: '100%', background: c.color, borderRadius: 99 }} />
-                          </div>
-                          <span style={{ fontSize: 14, fontWeight: 700, color: c.color, minWidth: 52, textAlign: 'right' }}>
-                            {pct != null ? `${pct}%` : '—'}
-                          </span>
-                        </div>
-                      </Td>
-                      <Td>
-                        {pct == null ? <Badge label="계획 없음" color="#9ca3af" bg="#f3f4f6" /> :
-                          pct >= 100 ? <Badge label="달성" color="#059669" bg="#d1fae5" /> :
-                          pct >= 80  ? <Badge label="근접" color="#d97706" bg="#fef3c7" /> :
-                                       <Badge label="미달" color="#dc2626" bg="#fee2e2" />}
-                      </Td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table></div>
-          )}
-        </Card>
-      </div>
+      {showModal && (
+        <PlanRegisterModal
+          plan={editPlan}
+          items={items}
+          rawMaterials={rawMaterials}
+          profile={profile}
+          onClose={() => { setShowModal(false); setEditPlan(null) }}
+          onSave={() => { setShowModal(false); setEditPlan(null); fetchAll() }}
+        />
+      )}
     </div>
   )
 }
