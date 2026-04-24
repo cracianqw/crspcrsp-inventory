@@ -10,7 +10,7 @@ import {
   Label, Input, SelectInput, Textarea,
   Overlay, ModalHeader, ModalBody, ModalFooter,
   ErrorBox, EmptyState, Spinner, Th, Td,
-  AuditStamp, useUserMap,
+  AuditStamp, useUserMap, itemLabel,
 } from '../components/UI'
 
 // ── 날짜 유틸 ─────────────────────────────────────────────────────
@@ -503,7 +503,7 @@ function PlanRegisterModal({ plan, items, rawMaterials, profile, onClose, onSave
                 {weeklyRefItems.map(it => {
                   const name = it.kind === 'other'
                     ? (it.custom_item_name || '—')
-                    : (items.find(i => i.id === it.item_id)?.name || '—')
+                    : (itemLabel(items.find(i => i.id === it.item_id)) || '—')
                   const qty = it.kind === 'production' ? `${Number(it.produce_qty_bags || 0).toLocaleString()}봉`
                             : it.kind === 'packaging'  ? `${Number(it.total_boxes || 0).toLocaleString()}박스`
                             : `${Number(it.work_qty || 0).toLocaleString()}건`
@@ -629,7 +629,7 @@ function ProductionTab({ rows, items, rawMaterials, planType, rangeDates, onAdd,
                 <Label>완성품</Label>
                 <SelectInput value={r.item_id} onChange={v => onUpdate(r.key, { item_id: v })}>
                   <option value="">선택...</option>
-                  {items.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
+                  {items.map(i => <option key={i.id} value={i.id}>{itemLabel(i)}</option>)}
                 </SelectInput>
               </div>
               <div>
@@ -703,7 +703,7 @@ function PackagingTab({ rows, items, planType, rangeDates, onAdd, onRemove, onUp
                   <Label>완성품</Label>
                   <SelectInput value={r.item_id} onChange={v => onUpdate(r.key, { item_id: v })}>
                     <option value="">선택...</option>
-                    {items.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
+                    {items.map(i => <option key={i.id} value={i.id}>{itemLabel(i)}</option>)}
                   </SelectInput>
                 </div>
                 <div>

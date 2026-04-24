@@ -7,7 +7,7 @@ import {
   Label, Input, SelectInput, Textarea,
   Overlay, ModalHeader, ModalBody, ModalFooter,
   ErrorBox, EmptyState, Spinner, Badge, LotBadge, DateBadge,
-  Th, Td, AuditStamp, useUserMap,
+  Th, Td, AuditStamp, useUserMap, itemLabel,
 } from '../components/UI'
 
 const STATUS = {
@@ -103,7 +103,7 @@ function ShippingModal({ partners, items, stock, onClose, onSave }) {
                   <div className="col-span-4">
                     <SelectInput value={it.item_id} onChange={v => handleItemChange(idx, v)}>
                       <option value="">품목...</option>
-                      {items.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
+                      {items.map(i => <option key={i.id} value={i.id}>{itemLabel(i)}</option>)}
                     </SelectInput>
                   </div>
                   <div className="col-span-3">
@@ -278,7 +278,7 @@ function PlanModal({ plan, partners, items, profile, onClose, onSave }) {
             <Label required>품목</Label>
             <SelectInput value={form.item_id} onChange={v => f('item_id', v)}>
               <option value="">품목 선택...</option>
-              {items.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
+              {items.map(i => <option key={i.id} value={i.id}>{itemLabel(i)}</option>)}
             </SelectInput>
           </div>
           <div>

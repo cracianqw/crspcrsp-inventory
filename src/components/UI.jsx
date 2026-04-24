@@ -4,6 +4,13 @@ import { useEffect, useState } from 'react'
 import { X, AlertCircle, Check } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 
+// ── 품목 드롭다운 라벨 — 외주 품목은 "[외주] " 접두 ─────────
+export function itemLabel(item, opts = {}) {
+  if (!item) return ''
+  const base = opts.withCode && item.code ? `${item.name} (${item.code})` : item.name
+  return item.production_type === 'outsourced' ? `[외주] ${base}` : base
+}
+
 // ── 사용자 맵 (id → 이름/아이디) 캐시 ────────────────────────
 let _userMapCache = null
 let _userMapPromise = null

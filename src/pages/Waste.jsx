@@ -7,7 +7,7 @@ import {
   Label, Input, SelectInput, Textarea,
   Overlay, ModalHeader, ModalBody, ModalFooter,
   ErrorBox, EmptyState, Spinner, Badge, LotBadge, DateBadge,
-  Th, Td, AuditStamp, useUserMap,
+  Th, Td, AuditStamp, useUserMap, itemLabel,
 } from '../components/UI'
 
 const WASTE_TYPES = [
@@ -41,7 +41,7 @@ function WasteModal({ items, productions, onClose, onSave }) {
           <div><Label required>품목</Label>
             <SelectInput value={form.item_id} onChange={v => f('item_id', v)}>
               <option value="">품목 선택...</option>
-              {items.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
+              {items.map(i => <option key={i.id} value={i.id}>{itemLabel(i)}</option>)}
             </SelectInput>
           </div>
           <div><Label required>발생일</Label><Input type="date" value={form.occurred_at} onChange={v => f('occurred_at', v)} /></div>

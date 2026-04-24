@@ -7,7 +7,7 @@ import {
   Label, Input, SelectInput, Textarea,
   Overlay, ModalHeader, ModalBody, ModalFooter,
   ErrorBox, EmptyState, Spinner, Badge, LotBadge,
-  AuditStamp, useUserMap,
+  AuditStamp, useUserMap, itemLabel,
 } from '../components/UI'
 
 function genBatch() {
@@ -56,7 +56,7 @@ function PackagingModal({ items, productions, onClose, onSave }) {
           <div><Label required>완성품</Label>
             <SelectInput value={form.item_id} onChange={v => f('item_id', v)}>
               <option value="">품목 선택...</option>
-              {items.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
+              {items.map(i => <option key={i.id} value={i.id}>{itemLabel(i)}</option>)}
             </SelectInput>
           </div>
           <div><Label>연결 생산기록</Label>

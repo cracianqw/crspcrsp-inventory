@@ -7,7 +7,7 @@ import {
   Label, Input, SelectInput, Textarea,
   ErrorBox, EmptyState, Spinner, Section,
   Th, Td, Badge, LotBadge, DateBadge, SearchInput,
-  AuditStamp, useUserMap,
+  AuditStamp, useUserMap, itemLabel,
 } from '../components/UI'
 
 const QC_STATUS = [
@@ -92,7 +92,7 @@ function ProductionModal({ items, availableLots, onClose, onSave }) {
               <div className="col-span-2"><Label required>완성품</Label>
                 <SelectInput value={form.item_id} onChange={v => f('item_id', v)}>
                   <option value="">품목 선택...</option>
-                  {items.map(item => <option key={item.id} value={item.id}>{item.name} ({item.code})</option>)}
+                  {items.map(item => <option key={item.id} value={item.id}>{itemLabel(item, { withCode: true })}</option>)}
                 </SelectInput>
               </div>
               <div><Label required>생산일</Label><Input type="date" value={form.plan_date} onChange={v => f('plan_date', v)} /></div>

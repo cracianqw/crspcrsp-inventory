@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { PackageOpen, Search } from 'lucide-react'
-import { StatCard, Card, CardHeader, Btn, RegisterBtn, Label, Input, SelectInput, Textarea, Overlay, ModalHeader, ModalBody, ModalFooter, ErrorBox, EmptyState, Spinner, Th, Td, LotBadge, SearchInput, AuditStamp, useUserMap } from '../components/UI'
+import { StatCard, Card, CardHeader, Btn, RegisterBtn, Label, Input, SelectInput, Textarea, Overlay, ModalHeader, ModalBody, ModalFooter, ErrorBox, EmptyState, Spinner, Th, Td, LotBadge, SearchInput, AuditStamp, useUserMap, itemLabel } from '../components/UI'
 
 function ReceivingModal({ rawMaterials, outsourcedItems, onClose, onSave }) {
   const { user } = useAuth()
@@ -118,7 +118,7 @@ function ReceivingModal({ rawMaterials, outsourcedItems, onClose, onSave }) {
               <Label required>외주 완성품</Label>
               <SelectInput value={form.item_id} onChange={v => f('item_id', v)}>
                 <option value="">외주 완성품 선택...</option>
-                {outsourcedItems.map(it => <option key={it.id} value={it.id}>{it.name} ({it.code})</option>)}
+                {outsourcedItems.map(it => <option key={it.id} value={it.id}>{itemLabel(it, { withCode: true })}</option>)}
               </SelectInput>
               {outsourcedItems.length === 0 && <p style={{ fontSize: 13, color: '#d97706', marginTop: 6 }}>품목 관리에서 '외주' 생산 유형 품목을 먼저 등록해 주세요.</p>}
             </div>
