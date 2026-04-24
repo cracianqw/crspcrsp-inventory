@@ -117,6 +117,7 @@ function PlanRegisterModal({ plan, items, rawMaterials, profile, onClose, onSave
 
   const [saving, setSaving] = useState(false)
   const [error, setError]   = useState('')
+  const [conflictState, setConflictState] = useState(null)  // 주간 append 시 (kind, 날짜) 충돌 해결 대기
 
   // 계획 유형 토글: 일간이면 종료일을 시작일로 맞춘다
   function changePlanType(v) {
@@ -288,6 +289,80 @@ function PlanRegisterModal({ plan, items, rawMaterials, profile, onClose, onSave
     return null
   }
 
+  // 입력된 행들을 DB insert 페이로드 배열로 변환 (plan_id/sort_order 는 insertItems 에서 부여)
+  function buildItemPayload() {
+    const defaultDate = planType === 'daily' ? periodStart : null
+    const payload = []
+    prodRows.forEach(r => {
+      if (!r.item_id && !r.produce_qty_bags) return
+      payload.push({
+        kind: 'production',
+        target_date: r.target_date || defaultDate || null,
+        item_id: r.item_id || null,
+        produce_qty_bags: r.produce_qty_bags === '' ? null : Number(r.produce_qty_bags),
+        _materials: r.materials.filter(m => m.raw_material_id && m.planned_qty !== ''),
+      })
+    })
+    pkgRows.forEach(r => {
+      if (!r.item_id && !r.total_boxes) return
+      const bpb = r.bags_per_box === '' ? null : Number(r.bags_per_box)
+      const tb  = r.total_boxes === '' ? null : Number(r.total_boxes)
+      payload.push({
+        kind: 'packaging',
+        target_date: r.target_date || defaultDate || null,
+        item_id: r.item_id || null,
+        pkg_unit: r.pkg_unit || null,
+        box_pkg_unit: r.box_pkg_unit || null,
+        bags_per_box: bpb,
+        total_boxes: tb,
+        total_bags: (bpb != null && tb != null) ? bpb * tb : null,
+        expiry_date: r.expiry_date || null,
+      })
+    })
+    otherRows.forEach(r => {
+      if (!r.custom_item_name && !r.work_qty) return
+      payload.push({
+        kind: 'other',
+        target_date: r.target_date || defaultDate || null,
+        custom_item_name: r.custom_item_name || null,
+        work_qty: r.work_qty === '' ? null : Number(r.work_qty),
+        outer_packing: r.outer_packing || null,
+        outer_packing_custom: r.outer_packing === 'custom' ? (r.outer_packing_custom || null) : null,
+        combined_packing: !!r.combined_packing,
+        combined_unit: r.combined_packing ? (r.combined_unit || null) : null,
+      })
+    })
+    return payload
+  }
+
+  async function insertItems(planId, items, startSort = 0) {
+    for (let i = 0; i < items.length; i++) {
+      const { _materials, ...rest } = items[i]
+      const { data: ins, error: ie } = await supabase
+        .from('production_plan_items')
+        .insert({ ...rest, plan_id: planId, sort_order: startSort + i })
+        .select().single()
+      if (ie) throw ie
+      if (_materials && _materials.length > 0) {
+        const matsPay = _materials.map((m, idx) => ({
+          plan_item_id: ins.id,
+          raw_material_id: m.raw_material_id,
+          planned_qty: Number(m.planned_qty),
+          unit: 'kg',
+          sort_order: idx,
+        }))
+        const { error: me } = await supabase.from('production_plan_materials').insert(matsPay)
+        if (me) throw me
+      }
+    }
+  }
+
+  async function deletePlanItems(itemIds) {
+    if (itemIds.length === 0) return
+    await supabase.from('production_plan_materials').delete().in('plan_item_id', itemIds)
+    await supabase.from('production_plan_items').delete().in('id', itemIds)
+  }
+
   async function handleSave() {
     const msg = validate()
     if (msg) { setError(msg); return }
@@ -303,97 +378,114 @@ function PlanRegisterModal({ plan, items, rawMaterials, profile, onClose, onSave
       diff_reason: planType === 'daily' && diffFromWeekly ? diffReason : null,
       weekly_plan_id: planType === 'daily' ? (weeklyRefPlan?.id || null) : null,
     }
+    const itemPayload = buildItemPayload()
 
     try {
-      let planId = plan?.id
       if (isEdit) {
+        // 수정: 헤더 갱신 + 기존 항목 전부 교체
         const { error: e } = await supabase.from('production_plans').update({
           ...header,
           updated_by: profile?.id || null,
           updated_at: new Date().toISOString(),
-        }).eq('id', planId)
+        }).eq('id', plan.id)
         if (e) throw e
-        // 기존 항목/원재료 전부 삭제 후 재삽입 (단순/안전)
         const { data: oldItems } = await supabase
-          .from('production_plan_items').select('id').eq('plan_id', planId)
-        const oldIds = (oldItems || []).map(x => x.id)
-        if (oldIds.length > 0) {
-          await supabase.from('production_plan_materials').delete().in('plan_item_id', oldIds)
-          await supabase.from('production_plan_items').delete().in('id', oldIds)
+          .from('production_plan_items').select('id').eq('plan_id', plan.id)
+        await deletePlanItems((oldItems || []).map(x => x.id))
+        await insertItems(plan.id, itemPayload, 0)
+        onSave()
+        setSaving(false)
+        return
+      }
+
+      // 신규 + 주간: 동일 기간의 주간계획이 이미 있으면 append
+      if (planType === 'weekly') {
+        const { data: existing } = await supabase
+          .from('production_plans')
+          .select('*')
+          .eq('plan_type', 'weekly')
+          .eq('period_start', periodStart)
+          .eq('period_end', periodEnd)
+          .is('deleted_at', null)
+          .order('created_at', { ascending: false })
+          .limit(1)
+        const existingPlan = (existing || [])[0]
+        if (existingPlan) {
+          const { data: existItems } = await supabase
+            .from('production_plan_items')
+            .select('*')
+            .eq('plan_id', existingPlan.id)
+
+          // (kind, target_date) 별로 충돌 검출
+          const existByKey = {}
+          ;(existItems || []).forEach(it => {
+            const key = `${it.kind}|${it.target_date || ''}`
+            if (!existByKey[key]) existByKey[key] = []
+            existByKey[key].push(it)
+          })
+          const conflictKeys = new Set()
+          itemPayload.forEach(it => {
+            const key = `${it.kind}|${it.target_date || ''}`
+            if (existByKey[key]?.length > 0) conflictKeys.add(key)
+          })
+
+          if (conflictKeys.size > 0) {
+            // 충돌 → 사용자 결정 대기
+            setConflictState({
+              existingPlan,
+              existingItems: existItems || [],
+              itemPayload,
+              conflictKeys: Array.from(conflictKeys),
+            })
+            setSaving(false)
+            return
+          }
+
+          // 충돌 없음 → 그대로 append
+          const nextSort = (existItems || []).length
+          await insertItems(existingPlan.id, itemPayload, nextSort)
+          onSave()
+          setSaving(false)
+          return
         }
+      }
+
+      // 신규 plan 생성 (주간이지만 기존 없음 / 일간)
+      const { data: created, error: ce } = await supabase.from('production_plans').insert({
+        ...header,
+        created_by: profile?.id || null,
+      }).select().single()
+      if (ce) throw ce
+      await insertItems(created.id, itemPayload, 0)
+      onSave()
+    } catch (err) {
+      setError(err.message)
+    }
+    setSaving(false)
+  }
+
+  // 충돌 해결: 'keep' (기존 유지) | 'overwrite' (덮어쓰기)
+  async function resolveConflict(mode) {
+    if (!conflictState) return
+    const { existingPlan, existingItems, itemPayload, conflictKeys } = conflictState
+    const keySet = new Set(conflictKeys)
+    setSaving(true); setError('')
+    try {
+      let toInsert = itemPayload
+      let existingCount = existingItems.length
+      if (mode === 'keep') {
+        // 충돌 (kind, 날짜) 에 해당하는 새 항목은 스킵
+        toInsert = itemPayload.filter(it => !keySet.has(`${it.kind}|${it.target_date || ''}`))
       } else {
-        const { data, error: e } = await supabase.from('production_plans').insert({
-          ...header,
-          created_by: profile?.id || null,
-        }).select().single()
-        if (e) throw e
-        planId = data.id
+        // overwrite: 충돌 (kind, 날짜) 에 해당하는 기존 항목 삭제
+        const toDelete = existingItems
+          .filter(it => keySet.has(`${it.kind}|${it.target_date || ''}`))
+          .map(it => it.id)
+        await deletePlanItems(toDelete)
+        existingCount -= toDelete.length
       }
-
-      const defaultDate = planType === 'daily' ? periodStart : null
-      const itemPayload = []
-      let sort = 0
-      prodRows.forEach(r => {
-        if (!r.item_id && !r.produce_qty_bags) return
-        itemPayload.push({
-          plan_id: planId, kind: 'production',
-          target_date: r.target_date || defaultDate || null,
-          item_id: r.item_id || null,
-          produce_qty_bags: r.produce_qty_bags === '' ? null : Number(r.produce_qty_bags),
-          sort_order: sort++,
-          _materials: r.materials.filter(m => m.raw_material_id && m.planned_qty !== ''),
-        })
-      })
-      pkgRows.forEach(r => {
-        if (!r.item_id && !r.total_boxes) return
-        const bpb = r.bags_per_box === '' ? null : Number(r.bags_per_box)
-        const tb  = r.total_boxes === '' ? null : Number(r.total_boxes)
-        itemPayload.push({
-          plan_id: planId, kind: 'packaging',
-          target_date: r.target_date || defaultDate || null,
-          item_id: r.item_id || null,
-          pkg_unit: r.pkg_unit || null,
-          box_pkg_unit: r.box_pkg_unit || null,
-          bags_per_box: bpb,
-          total_boxes: tb,
-          total_bags: (bpb != null && tb != null) ? bpb * tb : null,
-          expiry_date: r.expiry_date || null,
-          sort_order: sort++,
-        })
-      })
-      otherRows.forEach(r => {
-        if (!r.custom_item_name && !r.work_qty) return
-        itemPayload.push({
-          plan_id: planId, kind: 'other',
-          target_date: r.target_date || defaultDate || null,
-          custom_item_name: r.custom_item_name || null,
-          work_qty: r.work_qty === '' ? null : Number(r.work_qty),
-          outer_packing: r.outer_packing || null,
-          outer_packing_custom: r.outer_packing === 'custom' ? (r.outer_packing_custom || null) : null,
-          combined_packing: !!r.combined_packing,
-          combined_unit: r.combined_packing ? (r.combined_unit || null) : null,
-          sort_order: sort++,
-        })
-      })
-
-      // 항목 insert — production 의 materials 는 insert 후 id 사용
-      for (const it of itemPayload) {
-        const { _materials, ...pay } = it
-        const { data: ins, error: ie } = await supabase.from('production_plan_items').insert(pay).select().single()
-        if (ie) throw ie
-        if (_materials && _materials.length > 0) {
-          const matsPay = _materials.map((m, idx) => ({
-            plan_item_id: ins.id,
-            raw_material_id: m.raw_material_id,
-            planned_qty: Number(m.planned_qty),
-            unit: 'kg',
-            sort_order: idx,
-          }))
-          const { error: me } = await supabase.from('production_plan_materials').insert(matsPay)
-          if (me) throw me
-        }
-      }
-
+      await insertItems(existingPlan.id, toInsert, existingCount)
+      setConflictState(null)
       onSave()
     } catch (err) {
       setError(err.message)
@@ -403,6 +495,7 @@ function PlanRegisterModal({ plan, items, rawMaterials, profile, onClose, onSave
 
   // ── 렌더 ──
   return (
+    <>
     <Overlay onClose={onClose} size="xl">
       <ModalHeader sub={isEdit ? '계획 수정' : '새 계획을 등록합니다'}>
         {isEdit ? '계획 수정' : '계획 등록'}
@@ -598,6 +691,75 @@ function PlanRegisterModal({ plan, items, rawMaterials, profile, onClose, onSave
         <Btn disabled={saving} onClick={handleSave}>{saving ? '저장 중...' : isEdit ? '수정 저장' : '계획 등록'}</Btn>
       </ModalFooter>
     </Overlay>
+
+    {conflictState && (
+      <ConflictDialog
+        state={conflictState}
+        items={items}
+        onKeep={() => resolveConflict('keep')}
+        onOverwrite={() => resolveConflict('overwrite')}
+        onCancel={() => setConflictState(null)}
+        saving={saving}
+      />
+    )}
+    </>
+  )
+}
+
+// ── 충돌 해결 다이얼로그 ────────────────────────────────────
+function ConflictDialog({ state, items, onKeep, onOverwrite, onCancel, saving }) {
+  const { conflictKeys, existingItems, itemPayload } = state
+
+  // 충돌 키별 요약 (kind, 날짜, 기존/신규 건수)
+  const summary = conflictKeys.map(key => {
+    const [kind, date] = key.split('|')
+    const exCount = existingItems.filter(it => `${it.kind}|${it.target_date || ''}` === key).length
+    const inCount = itemPayload.filter(it => `${it.kind}|${it.target_date || ''}` === key).length
+    const exSample = existingItems.find(it => `${it.kind}|${it.target_date || ''}` === key)
+    const nameOf = (it) => it?.kind === 'other'
+      ? (it.custom_item_name || '—')
+      : (items.find(i => i.id === it?.item_id)?.name || '—')
+    const kindLabel = kind === 'production' ? '생산' : kind === 'packaging' ? '포장' : '기타'
+    return { key, kindLabel, date: date || '—', exCount, inCount, exSampleName: nameOf(exSample) }
+  })
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 60, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, backgroundColor: 'rgba(0,0,0,0.55)' }}>
+      <div style={{ background: '#fff', borderRadius: 16, boxShadow: '0 20px 60px rgba(0,0,0,0.2)', width: '100%', maxWidth: 560, maxHeight: '85vh', overflowY: 'auto' }}>
+        <div style={{ padding: '24px 28px 16px', borderBottom: '1px solid #f3f4f6' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+            <AlertTriangle size={20} color="#d97706" />
+            <h2 style={{ fontSize: 18, fontWeight: 700, color: '#111827' }}>이미 등록된 항목이 있습니다</h2>
+          </div>
+          <p style={{ fontSize: 13, color: '#6b7280' }}>
+            해당 날짜에 같은 유형의 계획이 이미 존재합니다. 기존 내용을 유지할지, 새 내용으로 덮어쓸지 선택해 주세요.
+          </p>
+        </div>
+        <div style={{ padding: '16px 28px' }}>
+          <div style={{ display: 'grid', gap: 8 }}>
+            {summary.map(s => (
+              <div key={s.key} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 10 }}>
+                <Badge label={s.kindLabel} color="#92400e" bg="#fff" />
+                <span style={{ fontSize: 13, fontWeight: 600, color: '#7c2d12' }}>{s.date === '—' ? '날짜 미지정' : fmtKDateFull(s.date)}</span>
+                <span style={{ marginLeft: 'auto', fontSize: 12, color: '#92400e' }}>
+                  기존 {s.exCount}건 · 신규 {s.inCount}건
+                </span>
+              </div>
+            ))}
+          </div>
+          <p style={{ fontSize: 12, color: '#9ca3af', marginTop: 12 }}>
+            ※ 충돌 외의 항목은 그대로 추가됩니다.
+          </p>
+        </div>
+        <div style={{ padding: '16px 28px 24px', borderTop: '1px solid #f3f4f6', display: 'flex', gap: 10, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+          <Btn variant="ghost" onClick={onCancel} disabled={saving}>취소</Btn>
+          <Btn variant="secondary" onClick={onKeep} disabled={saving}>기존 유지</Btn>
+          <Btn variant="danger" onClick={onOverwrite} disabled={saving}>
+            {saving ? '처리 중...' : '덮어쓰기'}
+          </Btn>
+        </div>
+      </div>
+    </div>
   )
 }
 
