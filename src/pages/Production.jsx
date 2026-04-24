@@ -5,6 +5,7 @@ import { Plus, Factory, X, Check, Camera, ChevronDown, ChevronUp, Trash2, Search
 import {
   StatCard, Card, CardHeader, Btn, RegisterBtn,
   Label, Input, SelectInput, Textarea,
+  Overlay, ModalHeader, ModalBody, ModalFooter,
   ErrorBox, EmptyState, Spinner, Section,
   Th, Td, Badge, LotBadge, DateBadge, SearchInput,
   AuditStamp, useUserMap, itemLabel,
@@ -77,126 +78,176 @@ function ProductionModal({ items, availableLots, onClose, onSave }) {
   const checkDone = Object.values(checklist).filter(Boolean).length
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.45)' }}>
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[92vh] overflow-y-auto relative">
-        <div className="sticky top-0 bg-white px-8 pt-8 pb-5 z-10 border-b border-gray-100">
-          <button onClick={onClose} className="absolute top-6 right-6 p-1.5 rounded-lg text-gray-400 hover:bg-gray-100"><X size={18} /></button>
-          <h2 className="text-xl font-bold text-gray-900">생산 기록 등록</h2>
-        </div>
+    <Overlay onClose={onClose} size="lg">
+      <ModalHeader sub="생산 실적 · 투입 LOT · 검수 · 사진을 함께 저장">생산 기록 등록</ModalHeader>
+      <ModalBody>
+        {error && <ErrorBox msg={error} />}
 
-        <div className="px-8 py-7 space-y-7">
-          {error && <ErrorBox msg={error} />}
-
-          <Section title="기본 정보">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="col-span-2"><Label required>완성품</Label>
-                <SelectInput value={form.item_id} onChange={v => f('item_id', v)}>
-                  <option value="">품목 선택...</option>
-                  {items.map(item => <option key={item.id} value={item.id}>{itemLabel(item, { withCode: true })}</option>)}
-                </SelectInput>
-              </div>
-              <div><Label required>생산일</Label><Input type="date" value={form.plan_date} onChange={v => f('plan_date', v)} /></div>
-              <div><Label>계획 수량 (박스)</Label><Input type="number" value={form.planned_qty} onChange={v => f('planned_qty', v)} placeholder="0" /></div>
+        <Section title="기본 정보">
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+            <div style={{ gridColumn: 'span 2' }}>
+              <Label required>완성품</Label>
+              <SelectInput value={form.item_id} onChange={v => f('item_id', v)}>
+                <option value="">품목 선택...</option>
+                {items.map(item => <option key={item.id} value={item.id}>{itemLabel(item, { withCode: true })}</option>)}
+              </SelectInput>
             </div>
-          </Section>
+            <div>
+              <Label required>생산일</Label>
+              <Input type="date" value={form.plan_date} onChange={v => f('plan_date', v)} />
+            </div>
+            <div>
+              <Label>계획 수량 (박스)</Label>
+              <Input type="number" value={form.planned_qty} onChange={v => f('planned_qty', v)} placeholder="0" />
+            </div>
+          </div>
+        </Section>
 
-          <Section title="투입 LOT"
-            action={availableLots.length > 0 && (
-              <button onClick={addLot} className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-md border border-gray-200 text-gray-600 hover:bg-gray-50">
-                <Plus size={13} /> LOT 추가
+        <Section title="투입 LOT"
+          action={availableLots.length > 0 && (
+            <button type="button" onClick={addLot}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', fontSize: 13, fontWeight: 600, border: '1.5px solid #e5e7eb', background: '#fff', color: '#374151', borderRadius: 8, cursor: 'pointer' }}>
+              <Plus size={13} /> LOT 추가
+            </button>
+          )}>
+          {lotInputs.length === 0 && (
+            <p style={{ fontSize: 14, color: '#9ca3af', padding: '4px 0' }}>
+              {availableLots.length === 0 ? '사용 가능한 LOT이 없습니다. 입고 관리에서 먼저 등록해 주세요.' : 'LOT 추가 버튼으로 투입 원료를 등록하세요.'}
+            </p>
+          )}
+          {lotInputs.map((li, idx) => (
+            <div key={idx} style={{ display: 'grid', gridTemplateColumns: '1fr 140px 48px', gap: 12, marginBottom: 10 }}>
+              <SelectInput value={li.lot_id} onChange={v => updateLot(idx, 'lot_id', v)}>
+                <option value="">LOT 선택...</option>
+                {availableLots.map(lot => <option key={lot.id} value={lot.id}>{lot.lot_number} — {lot.material_name} (잔여 {Number(lot.remaining_qty).toFixed(1)}{lot.unit})</option>)}
+              </SelectInput>
+              <Input type="number" value={li.quantity_used} onChange={v => updateLot(idx, 'quantity_used', v)} placeholder="사용량" />
+              <button type="button" onClick={() => removeLot(idx)}
+                style={{ height: 48, width: 48, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', border: '1.5px solid #fecaca', background: '#fef2f2', color: '#dc2626', borderRadius: 10, cursor: 'pointer' }}>
+                <Trash2 size={14} />
               </button>
-            )}>
-            {lotInputs.length === 0 && (
-              <p className="text-sm text-gray-400 py-2">
-                {availableLots.length === 0 ? '사용 가능한 LOT이 없습니다. 입고 관리에서 먼저 등록해 주세요.' : 'LOT 추가 버튼으로 투입 원료를 등록하세요.'}
-              </p>
-            )}
-            {lotInputs.map((li, idx) => (
-              <div key={idx} className="flex gap-3 mb-3">
-                <div className="flex-1"><SelectInput value={li.lot_id} onChange={v => updateLot(idx, 'lot_id', v)}>
-                  <option value="">LOT 선택...</option>
-                  {availableLots.map(lot => <option key={lot.id} value={lot.id}>{lot.lot_number} — {lot.material_name} (잔여 {Number(lot.remaining_qty).toFixed(1)}{lot.unit})</option>)}
-                </SelectInput></div>
-                <div className="w-32"><Input type="number" value={li.quantity_used} onChange={v => updateLot(idx, 'quantity_used', v)} placeholder="사용량" /></div>
-                <button onClick={() => removeLot(idx)} className="px-3 rounded-lg border border-red-100 bg-red-50 text-red-500 hover:bg-red-100"><Trash2 size={14} /></button>
-              </div>
-            ))}
-          </Section>
+            </div>
+          ))}
+        </Section>
 
-          <Section title="생산 결과">
-            <div className="grid grid-cols-3 gap-4">
-              <div><Label>실제 수량 (박스)</Label><Input type="number" value={form.actual_qty} onChange={v => f('actual_qty', v)} placeholder="0" /></div>
-              <div><Label>파지 수량</Label><Input type="number" value={form.waste_qty} onChange={v => f('waste_qty', v)} placeholder="0" /></div>
-              <div>
-                <Label>수율</Label>
-                <div className="h-11 flex items-center justify-center rounded-lg border border-gray-200 bg-gray-50 text-lg font-bold"
-                  style={{ color: yieldRate ? (Number(yieldRate) >= 90 ? '#059669' : Number(yieldRate) >= 70 ? '#d97706' : '#dc2626') : '#9ca3af' }}>
-                  {yieldRate ? `${yieldRate}%` : '—'}
+        <Section title="생산 결과">
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }}>
+            <div>
+              <Label>실제 수량 (박스)</Label>
+              <Input type="number" value={form.actual_qty} onChange={v => f('actual_qty', v)} placeholder="0" />
+            </div>
+            <div>
+              <Label>파지 수량</Label>
+              <Input type="number" value={form.waste_qty} onChange={v => f('waste_qty', v)} placeholder="0" />
+            </div>
+            <div>
+              <Label>수율</Label>
+              <div style={{
+                height: 48, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                borderRadius: 10, border: '1.5px solid #e5e7eb', background: '#f9fafb',
+                fontSize: 18, fontWeight: 700,
+                color: yieldRate ? (Number(yieldRate) >= 90 ? '#059669' : Number(yieldRate) >= 70 ? '#d97706' : '#dc2626') : '#9ca3af',
+              }}>
+                {yieldRate ? `${yieldRate}%` : '—'}
+              </div>
+            </div>
+          </div>
+        </Section>
+
+        <Section title={`검수 체크리스트 (${checkDone}/${QC_CHECKLIST.length})`}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 20 }}>
+            {QC_CHECKLIST.map((item, i) => (
+              <button key={i} type="button" onClick={() => setChecklist(p => ({ ...p, [i]: !p[i] }))}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 12,
+                  padding: '12px 16px', borderRadius: 10, textAlign: 'left', fontSize: 14,
+                  cursor: 'pointer', transition: 'all 0.15s',
+                  background: checklist[i] ? '#f0fdf4' : '#f9fafb',
+                  border: `1.5px solid ${checklist[i] ? '#86efac' : '#e5e7eb'}`,
+                  color: checklist[i] ? '#166534' : '#6b7280',
+                }}>
+                <div style={{
+                  width: 18, height: 18, borderRadius: 4, flexShrink: 0,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  background: checklist[i] ? '#22c55e' : '#e5e7eb',
+                }}>
+                  {checklist[i] && <Check size={11} color="#fff" />}
                 </div>
-              </div>
-            </div>
-          </Section>
-
-          <Section title={`검수 체크리스트 (${checkDone}/${QC_CHECKLIST.length})`}>
-            <div className="grid grid-cols-2 gap-2 mb-5">
-              {QC_CHECKLIST.map((item, i) => (
-                <button key={i} onClick={() => setChecklist(p => ({ ...p, [i]: !p[i] }))}
-                  className="flex items-center gap-3 px-4 py-3 rounded-lg text-sm text-left transition-all"
-                  style={checklist[i] ? { backgroundColor: '#f0fdf4', border: '1px solid #86efac', color: '#166534' } : { backgroundColor: '#f9fafb', border: '1px solid #e5e7eb', color: '#6b7280' }}>
-                  <div className="w-4 h-4 rounded flex items-center justify-center flex-shrink-0"
-                    style={checklist[i] ? { backgroundColor: '#22c55e' } : { backgroundColor: '#e5e7eb' }}>
-                    {checklist[i] && <Check size={10} color="white" />}
-                  </div>
-                  {item}
-                </button>
-              ))}
-            </div>
+                {item}
+              </button>
+            ))}
+          </div>
+          <div style={{ marginBottom: 20 }}>
             <Label>검수 상태</Label>
-            <div className="flex gap-2 mb-5">
-              {QC_STATUS.map(s => (
-                <button key={s.value} onClick={() => f('qc_status', s.value)}
-                  className="flex-1 h-11 rounded-lg text-sm font-medium transition-all"
-                  style={form.qc_status === s.value ? { backgroundColor: s.bg, color: s.color, border: `1.5px solid ${s.color}` } : { backgroundColor: '#f9fafb', color: '#9ca3af', border: '1.5px solid #e5e7eb' }}>
-                  {s.label}
-                </button>
+            <div style={{ display: 'flex', gap: 8 }}>
+              {QC_STATUS.map(s => {
+                const active = form.qc_status === s.value
+                return (
+                  <button key={s.value} type="button" onClick={() => f('qc_status', s.value)}
+                    style={{
+                      flex: 1, height: 48, fontSize: 14, fontWeight: 600,
+                      borderRadius: 10, cursor: 'pointer', transition: 'all 0.15s',
+                      background: active ? s.bg : '#f9fafb',
+                      color: active ? s.color : '#9ca3af',
+                      border: active ? `1.5px solid ${s.color}` : '1.5px solid #e5e7eb',
+                    }}>
+                    {s.label}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+          <Label>검수 메모</Label>
+          <Textarea value={form.qc_notes} onChange={v => f('qc_notes', v)} rows={2} placeholder="검수 특이사항..." />
+        </Section>
+
+        <Section title="생산 사진">
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+            {PHOTO_TYPES.map(pt => (
+              <label key={pt.value}
+                style={{
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                  gap: 8, height: 96, borderRadius: 10,
+                  border: '2px dashed #e5e7eb', cursor: 'pointer', transition: 'all 0.15s',
+                  background: '#fff',
+                }}>
+                <input type="file" accept="image/*" multiple style={{ display: 'none' }} data-photo-type={pt.value} onChange={handlePhotoAdd} />
+                <Camera size={18} color="#d1d5db" />
+                <span style={{ fontSize: 12, color: '#9ca3af' }}>{pt.label}</span>
+              </label>
+            ))}
+          </div>
+          {photos.length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {photos.map((p, i) => (
+                <div key={i} style={{ position: 'relative' }}>
+                  <img src={p.preview} alt="" style={{ width: 64, height: 64, objectFit: 'cover', borderRadius: 10, border: '1px solid #f3f4f6' }} />
+                  <span style={{
+                    position: 'absolute', bottom: 0, left: 0, right: 0, textAlign: 'center',
+                    color: '#fff', fontSize: 11, padding: '2px 0', borderBottomLeftRadius: 10, borderBottomRightRadius: 10,
+                    background: 'rgba(0,0,0,0.5)',
+                  }}>
+                    {PHOTO_TYPES.find(t => t.value === p.type)?.label}
+                  </span>
+                  <button type="button" onClick={() => removePhoto(i)}
+                    style={{
+                      position: 'absolute', top: -6, right: -6, width: 20, height: 20, borderRadius: 999,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      background: '#ef4444', color: '#fff', border: 'none', cursor: 'pointer',
+                    }}>
+                    <X size={10} />
+                  </button>
+                </div>
               ))}
             </div>
-            <Label>검수 메모</Label>
-            <Textarea value={form.qc_notes} onChange={v => f('qc_notes', v)} rows={2} placeholder="검수 특이사항..." />
-          </Section>
-
-          <Section title="생산 사진">
-            <div className="grid grid-cols-2 gap-3 mb-3">
-              {PHOTO_TYPES.map(pt => (
-                <label key={pt.value} className="flex flex-col items-center justify-center gap-2 h-24 rounded-lg border-2 border-dashed border-gray-200 cursor-pointer hover:border-gray-300 hover:bg-gray-50 transition-all">
-                  <input type="file" accept="image/*" multiple className="hidden" data-photo-type={pt.value} onChange={handlePhotoAdd} />
-                  <Camera size={18} className="text-gray-300" />
-                  <span className="text-xs text-gray-400">{pt.label}</span>
-                </label>
-              ))}
-            </div>
-            {photos.length > 0 && (
-              <div className="flex flex-wrap gap-2">
-                {photos.map((p, i) => (
-                  <div key={i} className="relative group">
-                    <img src={p.preview} alt="" className="w-16 h-16 object-cover rounded-lg border border-gray-100" />
-                    <span className="absolute bottom-0 left-0 right-0 text-center text-white text-xs py-0.5 rounded-b-lg" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
-                      {PHOTO_TYPES.find(t => t.value === p.type)?.label}
-                    </span>
-                    <button onClick={() => removePhoto(i)} className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full hidden group-hover:flex items-center justify-center bg-red-500 text-white"><X size={10} /></button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </Section>
-        </div>
-
-        <div className="sticky bottom-0 bg-white px-8 py-5 border-t border-gray-100 flex gap-3 justify-end">
-          <Btn variant="secondary" onClick={onClose}>취소</Btn>
-          <Btn disabled={saving} onClick={handleSave}>{saving ? '저장 중...' : '생산 기록 저장'}</Btn>
-        </div>
-      </div>
-    </div>
+          )}
+        </Section>
+      </ModalBody>
+      <ModalFooter>
+        <Btn variant="secondary" onClick={onClose}>취소</Btn>
+        <Btn disabled={saving} onClick={handleSave}>{saving ? '저장 중...' : '생산 기록 저장'}</Btn>
+      </ModalFooter>
+    </Overlay>
   )
 }
 
