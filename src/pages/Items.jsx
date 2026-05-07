@@ -17,7 +17,8 @@ const PROD_TYPES  = [
   { value: 'outsourced',  label: '외주' },
 ]
 const MONTHS = [1,2,3,4,5,6,7,8,9,10,11,12]
-const RAW_UNITS   = ['kg', 'g', 'L', 'ml', '개', '롤', '장']
+const INNER_UNITS = ['kg', 'g', 'L', 'ml', '개', '롤', '장', '속']
+const OUTER_UNITS = ['박스', '통', '포대', '롤']
 
 // 변경 감지: oldItem/newItem 비교하여 {field: {before, after}} 리턴
 function diffItem(oldItem, newItem) {
@@ -75,18 +76,20 @@ function ItemModal({ item, profile, onClose, onSave }) {
     if (!form.name?.trim()) { setError('품목명을 입력해 주세요.'); return }
     setSaving(true); setError('')
 
-    // 중복 체크: 같은 code + production_type 조합에 다른 품목이 있으면 거부
-    // (같은 code라도 자체생산/외주가 다르면 공존 가능)
-    const { data: dup } = await supabase.from('items')
+    // 중복 체크: code + unit + weight_g + sheet_count 네 가지가 모두 동일할 때만 거부
+    const weightVal = form.weight_g === '' ? null : Number(form.weight_g)
+    const sheetVal  = form.sheet_count === '' ? null : Number(form.sheet_count)
+    let dupQuery = supabase.from('items')
       .select('id')
       .eq('code', form.code.trim())
-      .eq('production_type', form.production_type)
+      .eq('unit', form.unit)
       .is('deleted_at', null)
-      .limit(1)
+    dupQuery = weightVal === null ? dupQuery.is('weight_g', null) : dupQuery.eq('weight_g', weightVal)
+    dupQuery = sheetVal  === null ? dupQuery.is('sheet_count', null) : dupQuery.eq('sheet_count', sheetVal)
+    const { data: dup } = await dupQuery.limit(1)
     if (dup && dup.length > 0 && dup[0].id !== item?.id) {
       setSaving(false)
-      const typeLabel = form.production_type === 'outsourced' ? '외주' : '자체생산'
-      setError(`이미 사용 중인 품목보고번호입니다 (${typeLabel}): ${form.code}`)
+      setError(`동일한 품목보고번호/단위/중량/매수 조합이 이미 존재합니다: ${form.code}`)
       return
     }
 
@@ -194,7 +197,7 @@ function ItemModal({ item, profile, onClose, onSave }) {
 
         {/* 월별 안전재고 */}
         <div style={{ marginTop: 8 }}>
-          <Label>월별 안전재고 (박스/단위)</Label>
+          <Label>월별 주간 안전재고 ({form.unit})</Label>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 8 }}>
             {MONTHS.map(m => (
               <div key={m} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -217,7 +220,7 @@ function ItemModal({ item, profile, onClose, onSave }) {
             ))}
           </div>
           <p style={{ fontSize: 12, color: '#9ca3af', marginTop: 6 }}>
-            설정된 월에는 해당 수량 미만일 때 재고부족 경고가 표시됩니다.
+            설정된 월의 주간 재고가 해당 수량 미만일 때 재고부족 경고가 표시됩니다.
           </p>
         </div>
       </ModalBody>
@@ -229,9 +232,17 @@ function ItemModal({ item, profile, onClose, onSave }) {
   )
 }
 
-// ── 원자재 모달 (기존 유지) ─────────────────────────
+// ── 원자재 모달 ─────────────────────────────────────
 function RawMaterialModal({ item, onClose, onSave }) {
-  const [form, setForm] = useState({ code: item?.code || '', name: item?.name || '', unit: item?.unit || 'kg' })
+  const [form, setForm] = useState({
+    code:            item?.code || '',
+    name:            item?.name || '',
+    inner_unit_qty:  item?.inner_unit_qty ?? 1,
+    inner_unit:      item?.inner_unit || item?.unit || INNER_UNITS[0],
+    outer_unit_qty:  item?.outer_unit_qty ?? 1,
+    outer_unit:      item?.outer_unit || OUTER_UNITS[0],
+    units_per_outer: item?.units_per_outer ?? 1,
+  })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const f = (k, v) => setForm(p => ({ ...p, [k]: v }))
@@ -239,7 +250,16 @@ function RawMaterialModal({ item, onClose, onSave }) {
   async function handleSave() {
     if (!form.code?.trim() || !form.name?.trim()) { setError('코드와 품명은 필수입니다.'); return }
     setSaving(true); setError('')
-    const payload = { code: form.code.trim(), name: form.name.trim(), unit: form.unit }
+    const payload = {
+      code:            form.code.trim(),
+      name:            form.name.trim(),
+      unit:            form.inner_unit, // 기존 컬럼 호환 (입고/생산 화면에서 사용)
+      inner_unit_qty:  Number(form.inner_unit_qty) || 1,
+      inner_unit:      form.inner_unit,
+      outer_unit_qty:  Number(form.outer_unit_qty) || 1,
+      outer_unit:      form.outer_unit,
+      units_per_outer: Number(form.units_per_outer) || 1,
+    }
     const { error } = item?.id
       ? await supabase.from('raw_materials').update(payload).eq('id', item.id)
       : await supabase.from('raw_materials').insert(payload)
@@ -248,13 +268,52 @@ function RawMaterialModal({ item, onClose, onSave }) {
   }
 
   return (
-    <Overlay onClose={onClose} size="sm">
+    <Overlay onClose={onClose} size="md">
       <ModalHeader>{item ? '원자재 수정' : '원자재 등록'}</ModalHeader>
       <ModalBody>
         {error && <ErrorBox msg={error} />}
-        <div><Label required>원자재 코드</Label><Input value={form.code} onChange={v => f('code', v)} placeholder="RM-001" /></div>
-        <div><Label required>원자재명</Label><Input value={form.name} onChange={v => f('name', v)} placeholder="조미김 원초" /></div>
-        <div><Label>단위</Label><SelectInput value={form.unit} onChange={v => f('unit', v)}>{RAW_UNITS.map(u => <option key={u} value={u}>{u}</option>)}</SelectInput></div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+          <div><Label required>원자재명</Label><Input value={form.name} onChange={v => f('name', v)} placeholder="조미김 원초" /></div>
+          <div><Label required>원자재 코드</Label><Input value={form.code} onChange={v => f('code', v)} placeholder="RM-001" /></div>
+        </div>
+
+        <div style={{ marginTop: 16 }}>
+          <Label>내포장 단위</Label>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            <Input type="number" value={form.inner_unit_qty} onChange={v => f('inner_unit_qty', v)} placeholder="1" />
+            <SelectInput value={form.inner_unit} onChange={v => f('inner_unit', v)}>
+              {INNER_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+            </SelectInput>
+          </div>
+        </div>
+
+        <div style={{ marginTop: 12 }}>
+          <Label>외포장 단위</Label>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            <Input type="number" value={form.outer_unit_qty} onChange={v => f('outer_unit_qty', v)} placeholder="1" />
+            <SelectInput value={form.outer_unit} onChange={v => f('outer_unit', v)}>
+              {OUTER_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+            </SelectInput>
+          </div>
+        </div>
+
+        <div style={{ marginTop: 12 }}>
+          <Label>외포장당 내포장 수량</Label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: 14, color: '#374151', whiteSpace: 'nowrap' }}>
+              1 {form.outer_unit} =
+            </span>
+            <div style={{ flex: 1 }}>
+              <Input type="number" value={form.units_per_outer} onChange={v => f('units_per_outer', v)} placeholder="8" />
+            </div>
+            <span style={{ fontSize: 14, color: '#374151', whiteSpace: 'nowrap' }}>
+              {form.inner_unit}
+            </span>
+          </div>
+          <p style={{ fontSize: 12, color: '#9ca3af', marginTop: 6 }}>
+            예) 1박스 = 8속, 1통 = 10L
+          </p>
+        </div>
       </ModalBody>
       <ModalFooter>
         <Btn variant="secondary" onClick={onClose}>취소</Btn>
@@ -403,7 +462,7 @@ export default function Items() {
     setLoading(true)
     const [{ data: its }, { data: rms }] = await Promise.all([
       supabase.from('items').select('*').is('deleted_at', null).order('name'),
-      supabase.from('raw_materials').select('*').is('deleted_at', null).order('code'),
+      supabase.from('raw_materials').select('*').is('deleted_at', null).order('name'),
     ])
     // 정렬: 품명 오름차순, 동일 품명 내에서 자체생산(internal) 먼저, 외주(outsourced) 뒤
     const sorted = (its || []).slice().sort((a, b) => {
@@ -589,13 +648,30 @@ export default function Items() {
           rawMaterials.length === 0 ? <EmptyState icon={Wheat} text="등록된 원자재가 없습니다" /> : (
             <div className="tbl-wrap">
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead><tr>{['코드', '원자재명', '단위', canEditRow ? '관리' : ''].map(h => <Th key={h}>{h}</Th>)}</tr></thead>
+              <thead><tr>{['원자재명', '코드', '단위', canEditRow ? '관리' : ''].map(h => <Th key={h}>{h}</Th>)}</tr></thead>
               <tbody>
-                {rawMaterials.map((rm, i) => (
+                {rawMaterials.map((rm, i) => {
+                  const inner = rm.inner_unit || rm.unit || '—'
+                  const innerQty = rm.inner_unit_qty ?? 1
+                  const outer = rm.outer_unit
+                  const outerQty = rm.outer_unit_qty ?? 1
+                  const ratio = rm.units_per_outer ?? null
+                  return (
                   <tr key={rm.id} style={{ backgroundColor: i % 2 === 0 ? '#fff' : '#fafafa' }}>
-                    <Td><LotBadge>{rm.code}</LotBadge></Td>
                     <Td><span style={{ fontWeight: 500, color: '#111827' }}>{rm.name}</span></Td>
-                    <Td style={{ color: '#6b7280' }}>{rm.unit}</Td>
+                    <Td><LotBadge>{rm.code}</LotBadge></Td>
+                    <Td style={{ color: '#6b7280' }}>
+                      {outer ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.3 }}>
+                          <span>{innerQty}{inner} / {outerQty}{outer}</span>
+                          {ratio && (
+                            <span style={{ fontSize: 12, color: '#9ca3af' }}>
+                              1{outer} = {ratio}{inner}
+                            </span>
+                          )}
+                        </div>
+                      ) : inner}
+                    </Td>
                     {canEditRow && (
                       <Td>
                         <div style={{ display: 'flex', gap: 6 }}>
@@ -605,7 +681,8 @@ export default function Items() {
                       </Td>
                     )}
                   </tr>
-                ))}
+                  )
+                })}
               </tbody>
             </table>
             </div>
