@@ -648,7 +648,7 @@ export default function Items() {
           rawMaterials.length === 0 ? <EmptyState icon={Wheat} text="등록된 원자재가 없습니다" /> : (
             <div className="tbl-wrap">
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead><tr>{['원자재명', '코드', '단위', canEditRow ? '관리' : ''].map(h => <Th key={h}>{h}</Th>)}</tr></thead>
+              <thead><tr>{['원자재코드(자호)', '원자재명', '단위', canEditRow ? '관리' : ''].map(h => <Th key={h}>{h}</Th>)}</tr></thead>
               <tbody>
                 {rawMaterials.map((rm, i) => {
                   const inner = rm.inner_unit || rm.unit || '—'
@@ -658,8 +658,12 @@ export default function Items() {
                   const ratio = rm.units_per_outer ?? null
                   return (
                   <tr key={rm.id} style={{ backgroundColor: i % 2 === 0 ? '#fff' : '#fafafa' }}>
-                    <Td><span style={{ fontWeight: 500, color: '#111827' }}>{rm.name}</span></Td>
-                    <Td><LotBadge>{rm.code}</LotBadge></Td>
+                    <Td>
+                      <span style={{ fontSize: 16, fontWeight: 700, color: '#111827', letterSpacing: '0.2px' }}>{rm.code}</span>
+                    </Td>
+                    <Td>
+                      <span style={{ color: '#111827' }}>{rm.name}</span>
+                    </Td>
                     <Td style={{ color: '#6b7280' }}>
                       {outer ? (
                         <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.3 }}>
