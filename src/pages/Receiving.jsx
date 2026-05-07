@@ -1,23 +1,63 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
-import { PackageOpen, Search } from 'lucide-react'
-import { StatCard, Card, CardHeader, Btn, RegisterBtn, Label, Input, SelectInput, Textarea, Overlay, ModalHeader, ModalBody, ModalFooter, ErrorBox, EmptyState, Spinner, Th, Td, LotBadge, SearchInput, AuditStamp, useUserMap, itemLabel } from '../components/UI'
+import { PackageOpen, Search, Edit2, Trash2 } from 'lucide-react'
+import { StatCard, Card, CardHeader, Btn, RegisterBtn, IconBtn, Label, Input, SelectInput, Textarea, Overlay, ModalHeader, ModalBody, ModalFooter, ErrorBox, EmptyState, Spinner, Th, Td, LotBadge, SearchInput, AuditStamp, useUserMap, itemLabel } from '../components/UI'
 
-function ReceivingModal({ rawMaterials, outsourcedItems, onClose, onSave }) {
-  const { user } = useAuth()
-  const [mode, setMode] = useState('raw')  // 'raw' | 'outsourced'
-  const [form, setForm] = useState({
+// LOT 번호 강조 배지 — 입고 리스트 전용
+function LotBadgeBig({ children }) {
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center',
+      fontFamily: 'monospace', fontSize: 14, fontWeight: 700,
+      padding: '5px 12px', borderRadius: 8,
+      background: '#004634', color: '#fff',
+      letterSpacing: '0.3px',
+    }}>{children}</span>
+  )
+}
+
+function buildInitialReceivingForm(existing, rawMaterials) {
+  const base = {
     raw_material_id: '', lot_number: '',
-    qty_inner: '',        // 내포장 단위 수량
-    qty_outer: '',        // 외포장 단위 수량
-    qty_legacy: '',       // 단위 미정의 시 단일 수량
-    unit_legacy: 'kg',    // 단위 미정의 시 사용자 입력 단위
+    qty_inner: '', qty_outer: '', qty_legacy: '',
+    unit_legacy: 'kg',
     received_at: new Date().toISOString().split('T')[0],
     supplier_name: '', notes: '',
-    // 외주 전용
     item_id: '', expiry_date: '', quantity: '',
-  })
+  }
+  if (!existing) return base
+  const mat = rawMaterials.find(r => r.id === existing.raw_material_id)
+  const innerUnit = mat?.inner_unit || ''
+  const outerUnit = mat?.outer_unit || ''
+  const qty = existing.quantity ?? existing.received_qty
+  const out = {
+    ...base,
+    raw_material_id: existing.raw_material_id || '',
+    lot_number: existing.lot_number || '',
+    received_at: existing.received_at || base.received_at,
+    supplier_name: existing.supplier_name || '',
+    notes: existing.notes || '',
+  }
+  if (innerUnit && outerUnit) {
+    out.qty_inner = qty != null ? String(qty) : ''
+    out.qty_outer = existing.outer_quantity != null ? String(existing.outer_quantity) : ''
+  } else if (innerUnit) {
+    out.qty_inner = qty != null ? String(qty) : ''
+  } else if (outerUnit) {
+    out.qty_outer = qty != null ? String(qty) : ''
+  } else {
+    out.qty_legacy = qty != null ? String(qty) : ''
+    out.unit_legacy = existing.unit || 'kg'
+  }
+  return out
+}
+
+function ReceivingModal({ rawMaterials, outsourcedItems, existing, onClose, onSave }) {
+  const { user } = useAuth()
+  const isEdit = !!existing?.id
+  const [mode, setMode] = useState('raw')  // 'raw' | 'outsourced'
+  const [form, setForm] = useState(() => buildInitialReceivingForm(existing, rawMaterials))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const f = (k, v) => setForm(p => ({ ...p, [k]: v }))
@@ -56,15 +96,19 @@ function ReceivingModal({ rawMaterials, outsourcedItems, onClose, onSave }) {
     }
 
     setSaving(true); setError('')
-    const { error } = await supabase.from('receiving_lots').insert({
+    const payload = {
       raw_material_id: form.raw_material_id,
       lot_number: form.lot_number,
       quantity, unit, outer_quantity, outer_unit,
       received_at: form.received_at,
       supplier_name: form.supplier_name,
       notes: form.notes,
-      created_by: user?.id,
-    })
+    }
+    const { error } = isEdit
+      ? await supabase.from('receiving_lots')
+          .update({ ...payload, updated_by: user?.id, updated_at: new Date().toISOString() })
+          .eq('id', existing.id)
+      : await supabase.from('receiving_lots').insert({ ...payload, created_by: user?.id })
     if (error) setError(error.message); else onSave()
     setSaving(false)
   }
@@ -100,11 +144,11 @@ function ReceivingModal({ rawMaterials, outsourcedItems, onClose, onSave }) {
 
   return (
     <Overlay onClose={onClose} size="md">
-      <ModalHeader>{mode === 'raw' ? '원자재' : '외주 완성품'} 입고 등록</ModalHeader>
+      <ModalHeader>{isEdit ? '원자재 입고 수정' : (mode === 'raw' ? '원자재' : '외주 완성품') + ' 입고 등록'}</ModalHeader>
       <ModalBody>
         {error && <ErrorBox msg={error} />}
-        {/* 입고 유형 토글 */}
-        <div style={{ display: 'inline-flex', background: '#f5f5f0', borderRadius: 10, padding: 4 }}>
+        {/* 입고 유형 토글 — 수정 모드에서는 숨김 */}
+        {!isEdit && <div style={{ display: 'inline-flex', background: '#f5f5f0', borderRadius: 10, padding: 4 }}>
           {[
             { v: 'raw',        label: '원자재' },
             { v: 'outsourced', label: '외주 완성품' },
@@ -117,9 +161,9 @@ function ReceivingModal({ rawMaterials, outsourcedItems, onClose, onSave }) {
                 color: mode === o.v ? '#fff' : '#6b7280',
               }}>{o.label}</button>
           ))}
-        </div>
+        </div>}
 
-        {mode === 'raw' ? (
+        {mode === 'raw' || isEdit ? (
           <>
             <div>
               <Label required>원자재</Label>
@@ -192,13 +236,14 @@ function ReceivingModal({ rawMaterials, outsourcedItems, onClose, onSave }) {
       </ModalBody>
       <ModalFooter>
         <Btn variant="secondary" onClick={onClose}>취소</Btn>
-        <Btn disabled={saving} onClick={handleSave}>{saving ? '등록 중...' : '입고 등록'}</Btn>
+        <Btn disabled={saving} onClick={handleSave}>{saving ? (isEdit ? '저장 중...' : '등록 중...') : (isEdit ? '저장' : '입고 등록')}</Btn>
       </ModalFooter>
     </Overlay>
   )
 }
 
 export default function Receiving() {
+  const { user, isMaster } = useAuth()
   const userMap = useUserMap()
   const [lots, setLots] = useState([])
   const [audit, setAudit] = useState({})
@@ -207,7 +252,19 @@ export default function Receiving() {
   const [outsourcedReceipts, setOutsourcedReceipts] = useState([])
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
+  const [editingLot, setEditingLot] = useState(null)
   const [search, setSearch] = useState('')
+
+  const canManageLot = lot => isMaster || (lot?.created_by && lot.created_by === user?.id)
+
+  async function softDeleteLot(lot) {
+    if (!confirm(`[${lot.lot_number}] LOT을 삭제하시겠습니까?\n\n삭제 내역 메뉴에서 복구할 수 있습니다.`)) return
+    const { error } = await supabase.from('receiving_lots')
+      .update({ deleted_at: new Date().toISOString(), deleted_by: user?.id })
+      .eq('id', lot.id)
+    if (error) { alert(error.message); return }
+    fetchAll()
+  }
 
   useEffect(() => { fetchAll() }, [])
 
@@ -236,14 +293,18 @@ export default function Receiving() {
       return {
         id: l.id,
         lot_number: l.lot_number,
+        raw_material_id: l.raw_material_id,
         material_name: l.raw_materials?.name || '',
         received_at: l.received_at,
         received_qty: received,
+        quantity: received,
         remaining_qty: received - (usedMap[l.id] || 0),
         unit: l.unit,
         outer_quantity: l.outer_quantity,
         outer_unit: l.outer_unit,
         supplier_name: l.supplier_name,
+        notes: l.notes,
+        created_by: l.created_by,
       }
     })
     setLots(ls); setAudit(a); setRawMaterials(rms || [])
@@ -285,19 +346,29 @@ export default function Receiving() {
           <EmptyState icon={PackageOpen} text={search ? '검색 결과가 없습니다' : '등록된 입고 이력이 없습니다'} />
         ) : (
           <div className="tbl-wrap"><table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead><tr>{['LOT 번호', '원자재', '입고일', '입고량', '잔여량 / 사용률', '공급업체', '등록', '수정'].map(h => <Th key={h}>{h}</Th>)}</tr></thead>
+            <thead><tr>{['LOT 번호', '원자재명', '입고일', '입고량', '잔여량 / 사용률', '공급업체', '등록', '수정', '관리'].map(h => <Th key={h}>{h}</Th>)}</tr></thead>
             <tbody>
               {filtered.map((lot, i) => {
                 const remaining = Number(lot.remaining_qty) || 0
                 const received  = Number(lot.received_qty)  || 0
                 const pct = received > 0 ? ((received - remaining) / received) * 100 : 0
                 const low = remaining < received * 0.2 && remaining > 0
+                const allow = canManageLot(lot)
                 return (
                   <tr key={lot.id} style={{ backgroundColor: i % 2 === 0 ? '#fff' : '#fafafa' }}>
-                    <Td><LotBadge>{lot.lot_number}</LotBadge></Td>
-                    <Td><span style={{ fontWeight: 500, color: '#111827' }}>{lot.material_name}</span></Td>
-                    <Td style={{ color: '#6b7280' }}>{lot.received_at ? new Date(lot.received_at).toLocaleDateString('ko-KR') : '—'}</Td>
-                    <Td><span style={{ fontWeight: 600 }}>{received.toLocaleString()}</span> <span style={{ color: '#9ca3af', fontSize: 13 }}>{lot.unit}</span></Td>
+                    <Td><LotBadgeBig>{lot.lot_number}</LotBadgeBig></Td>
+                    <Td><span style={{ fontWeight: 600, color: '#111827', fontSize: 14 }}>{lot.material_name || '—'}</span></Td>
+                    <Td style={{ color: '#374151', fontWeight: 500 }}>{lot.received_at ? new Date(lot.received_at).toLocaleDateString('ko-KR') : '—'}</Td>
+                    <Td>
+                      <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.3 }}>
+                        <span><span style={{ fontWeight: 700, fontSize: 15, color: '#111827' }}>{received.toLocaleString()}</span> <span style={{ color: '#6b7280', fontSize: 13 }}>{lot.unit}</span></span>
+                        {lot.outer_quantity != null && lot.outer_unit && (
+                          <span style={{ fontSize: 12, color: '#9ca3af', marginTop: 2 }}>
+                            ({Number(lot.outer_quantity).toLocaleString()} {lot.outer_unit})
+                          </span>
+                        )}
+                      </div>
+                    </Td>
                     <Td>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                         <span style={{ fontWeight: 600, fontSize: 15, color: remaining <= 0 ? '#9ca3af' : low ? '#d97706' : '#111827' }}>
@@ -311,9 +382,19 @@ export default function Receiving() {
                         </div>
                       </div>
                     </Td>
-                    <Td style={{ color: '#6b7280' }}>{lot.supplier_name || '—'}</Td>
+                    <Td style={{ color: '#374151', fontWeight: 500 }}>{lot.supplier_name || '—'}</Td>
                     <Td><AuditStamp userName={userMap[audit[lot.id]?.created_by]} at={audit[lot.id]?.created_at} /></Td>
                     <Td><AuditStamp userName={userMap[audit[lot.id]?.updated_by]} at={audit[lot.id]?.updated_at} /></Td>
+                    <Td>
+                      {allow ? (
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <IconBtn icon={Edit2} onClick={() => setEditingLot(lot)} label="수정" />
+                          <IconBtn icon={Trash2} variant="danger" onClick={() => softDeleteLot(lot)} label="삭제" />
+                        </div>
+                      ) : (
+                        <span style={{ fontSize: 12, color: '#d1d5db' }}>—</span>
+                      )}
+                    </Td>
                   </tr>
                 )
               })}
@@ -357,6 +438,11 @@ export default function Receiving() {
         <ReceivingModal rawMaterials={rawMaterials} outsourcedItems={outsourcedItems}
           onClose={() => setShowModal(false)}
           onSave={() => { setShowModal(false); fetchAll() }} />
+      )}
+      {editingLot && (
+        <ReceivingModal rawMaterials={rawMaterials} outsourcedItems={outsourcedItems} existing={editingLot}
+          onClose={() => setEditingLot(null)}
+          onSave={() => { setEditingLot(null); fetchAll() }} />
       )}
     </div>
   )
