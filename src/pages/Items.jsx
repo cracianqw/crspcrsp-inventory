@@ -17,8 +17,7 @@ const PROD_TYPES  = [
   { value: 'outsourced',  label: '외주' },
 ]
 const MONTHS = [1,2,3,4,5,6,7,8,9,10,11,12]
-const INNER_UNITS = ['kg', 'g', 'L', 'ml', '개', '롤', '장', '속']
-const OUTER_UNITS = ['박스', '통', '포대', '롤']
+const PACK_UNIT_OPTIONS = ['', 'kg', 'g', 'L', 'ml', '개', '롤', '장', '속', '박스', '통', '포대']
 
 // 변경 감지: oldItem/newItem 비교하여 {field: {before, after}} 리턴
 function diffItem(oldItem, newItem) {
@@ -235,13 +234,10 @@ function ItemModal({ item, profile, onClose, onSave }) {
 // ── 원자재 모달 ─────────────────────────────────────
 function RawMaterialModal({ item, onClose, onSave }) {
   const [form, setForm] = useState({
-    code:            item?.code || '',
-    name:            item?.name || '',
-    inner_unit_qty:  item?.inner_unit_qty ?? 1,
-    inner_unit:      item?.inner_unit || item?.unit || INNER_UNITS[0],
-    outer_unit_qty:  item?.outer_unit_qty ?? 1,
-    outer_unit:      item?.outer_unit || OUTER_UNITS[0],
-    units_per_outer: item?.units_per_outer ?? 1,
+    code:       item?.code || '',
+    name:       item?.name || '',
+    inner_unit: item?.inner_unit ?? item?.unit ?? '',
+    outer_unit: item?.outer_unit ?? '',
   })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -251,14 +247,11 @@ function RawMaterialModal({ item, onClose, onSave }) {
     if (!form.code?.trim() || !form.name?.trim()) { setError('코드와 품명은 필수입니다.'); return }
     setSaving(true); setError('')
     const payload = {
-      code:            form.code.trim(),
-      name:            form.name.trim(),
-      unit:            form.inner_unit, // 기존 컬럼 호환 (입고/생산 화면에서 사용)
-      inner_unit_qty:  Number(form.inner_unit_qty) || 1,
-      inner_unit:      form.inner_unit,
-      outer_unit_qty:  Number(form.outer_unit_qty) || 1,
-      outer_unit:      form.outer_unit,
-      units_per_outer: Number(form.units_per_outer) || 1,
+      code:       form.code.trim(),
+      name:       form.name.trim(),
+      unit:       form.inner_unit || 'kg', // 기존 컬럼 호환 (입고/생산 화면에서 사용)
+      inner_unit: form.inner_unit || null,
+      outer_unit: form.outer_unit || null,
     }
     const { error } = item?.id
       ? await supabase.from('raw_materials').update(payload).eq('id', item.id)
@@ -277,42 +270,19 @@ function RawMaterialModal({ item, onClose, onSave }) {
           <div><Label required>원자재 코드</Label><Input value={form.code} onChange={v => f('code', v)} placeholder="RM-001" /></div>
         </div>
 
-        <div style={{ marginTop: 16 }}>
-          <Label>내포장 단위</Label>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-            <Input type="number" value={form.inner_unit_qty} onChange={v => f('inner_unit_qty', v)} placeholder="1" />
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginTop: 16 }}>
+          <div>
+            <Label>내포장 단위</Label>
             <SelectInput value={form.inner_unit} onChange={v => f('inner_unit', v)}>
-              {INNER_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+              {PACK_UNIT_OPTIONS.map(u => <option key={u || 'none'} value={u}>{u || '없음'}</option>)}
             </SelectInput>
           </div>
-        </div>
-
-        <div style={{ marginTop: 12 }}>
-          <Label>외포장 단위</Label>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-            <Input type="number" value={form.outer_unit_qty} onChange={v => f('outer_unit_qty', v)} placeholder="1" />
+          <div>
+            <Label>외포장 단위</Label>
             <SelectInput value={form.outer_unit} onChange={v => f('outer_unit', v)}>
-              {OUTER_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+              {PACK_UNIT_OPTIONS.map(u => <option key={u || 'none'} value={u}>{u || '없음'}</option>)}
             </SelectInput>
           </div>
-        </div>
-
-        <div style={{ marginTop: 12 }}>
-          <Label>외포장당 내포장 수량</Label>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{ fontSize: 14, color: '#374151', whiteSpace: 'nowrap' }}>
-              1 {form.outer_unit} =
-            </span>
-            <div style={{ flex: 1 }}>
-              <Input type="number" value={form.units_per_outer} onChange={v => f('units_per_outer', v)} placeholder="8" />
-            </div>
-            <span style={{ fontSize: 14, color: '#374151', whiteSpace: 'nowrap' }}>
-              {form.inner_unit}
-            </span>
-          </div>
-          <p style={{ fontSize: 12, color: '#9ca3af', marginTop: 6 }}>
-            예) 1박스 = 8속, 1통 = 10L
-          </p>
         </div>
       </ModalBody>
       <ModalFooter>
@@ -651,11 +621,9 @@ export default function Items() {
               <thead><tr>{['원자재코드(자호)', '원자재명', '단위', canEditRow ? '관리' : ''].map(h => <Th key={h}>{h}</Th>)}</tr></thead>
               <tbody>
                 {rawMaterials.map((rm, i) => {
-                  const inner = rm.inner_unit || rm.unit || '—'
-                  const innerQty = rm.inner_unit_qty ?? 1
-                  const outer = rm.outer_unit
-                  const outerQty = rm.outer_unit_qty ?? 1
-                  const ratio = rm.units_per_outer ?? null
+                  const inner = rm.inner_unit || rm.unit || ''
+                  const outer = rm.outer_unit || ''
+                  const unitLabel = inner && outer ? `${inner} / ${outer}` : (inner || outer || '—')
                   return (
                   <tr key={rm.id} style={{ backgroundColor: i % 2 === 0 ? '#fff' : '#fafafa' }}>
                     <Td>
@@ -664,18 +632,7 @@ export default function Items() {
                     <Td>
                       <span style={{ color: '#111827' }}>{rm.name}</span>
                     </Td>
-                    <Td style={{ color: '#6b7280' }}>
-                      {outer ? (
-                        <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.3 }}>
-                          <span>{innerQty}{inner} / {outerQty}{outer}</span>
-                          {ratio && (
-                            <span style={{ fontSize: 12, color: '#9ca3af' }}>
-                              1{outer} = {ratio}{inner}
-                            </span>
-                          )}
-                        </div>
-                      ) : inner}
-                    </Td>
+                    <Td style={{ color: '#6b7280' }}>{unitLabel}</Td>
                     {canEditRow && (
                       <Td>
                         <div style={{ display: 'flex', gap: 6 }}>
