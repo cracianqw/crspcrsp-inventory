@@ -213,16 +213,40 @@ export default function Receiving() {
 
   async function fetchAll() {
     setLoading(true)
-    const [{ data: ls }, { data: lotRaw }, { data: rms }, { data: outItems }, { data: outReceipts }] = await Promise.all([
-      supabase.from('raw_material_stock').select('*').order('received_at', { ascending: false }),
-      supabase.from('receiving_lots').select('id, created_by, created_at, updated_by, updated_at').is('deleted_at', null),
+    const [{ data: lotsRaw }, { data: pInputs }, { data: rms }, { data: outItems }, { data: outReceipts }] = await Promise.all([
+      supabase.from('receiving_lots')
+        .select('*, raw_materials(name, code)')
+        .is('deleted_at', null)
+        .order('received_at', { ascending: false }),
+      supabase.from('production_lot_inputs').select('receiving_lot_id, input_qty'),
       supabase.from('raw_materials').select('*').is('deleted_at', null).order('name'),
       supabase.from('items').select('*').eq('is_active', true).eq('production_type', 'outsourced').is('deleted_at', null).order('name'),
       supabase.from('outsourced_receipts').select('*, items(name, code)').is('deleted_at', null).order('received_date', { ascending: false }),
     ])
+
+    const usedMap = {}
+    ;(pInputs || []).forEach(p => {
+      usedMap[p.receiving_lot_id] = (usedMap[p.receiving_lot_id] || 0) + Number(p.input_qty || 0)
+    })
+
     const a = {}
-    ;(lotRaw || []).forEach(r => { a[r.id] = r })
-    setLots(ls || []); setAudit(a); setRawMaterials(rms || [])
+    const ls = (lotsRaw || []).map(l => {
+      a[l.id] = { created_by: l.created_by, created_at: l.created_at, updated_by: l.updated_by, updated_at: l.updated_at }
+      const received = Number(l.quantity || 0)
+      return {
+        id: l.id,
+        lot_number: l.lot_number,
+        material_name: l.raw_materials?.name || '',
+        received_at: l.received_at,
+        received_qty: received,
+        remaining_qty: received - (usedMap[l.id] || 0),
+        unit: l.unit,
+        outer_quantity: l.outer_quantity,
+        outer_unit: l.outer_unit,
+        supplier_name: l.supplier_name,
+      }
+    })
+    setLots(ls); setAudit(a); setRawMaterials(rms || [])
     setOutsourcedItems(outItems || []); setOutsourcedReceipts(outReceipts || [])
     setLoading(false)
   }
