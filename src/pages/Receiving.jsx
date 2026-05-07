@@ -8,31 +8,58 @@ function ReceivingModal({ rawMaterials, outsourcedItems, onClose, onSave }) {
   const { user } = useAuth()
   const [mode, setMode] = useState('raw')  // 'raw' | 'outsourced'
   const [form, setForm] = useState({
-    raw_material_id: '', lot_number: '', quantity: '', unit: 'kg',
+    raw_material_id: '', lot_number: '',
+    qty_inner: '',        // 내포장 단위 수량
+    qty_outer: '',        // 외포장 단위 수량
+    qty_legacy: '',       // 단위 미정의 시 단일 수량
+    unit_legacy: 'kg',    // 단위 미정의 시 사용자 입력 단위
     received_at: new Date().toISOString().split('T')[0],
     supplier_name: '', notes: '',
     // 외주 전용
-    item_id: '', expiry_date: '',
+    item_id: '', expiry_date: '', quantity: '',
   })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const f = (k, v) => setForm(p => ({ ...p, [k]: v }))
 
+  const selectedMat = rawMaterials.find(r => r.id === form.raw_material_id)
+  const innerUnit = selectedMat?.inner_unit || ''
+  const outerUnit = selectedMat?.outer_unit || ''
+
   function handleMaterialChange(id) {
     const mat = rawMaterials.find(r => r.id === id)
-    setForm(p => ({ ...p, raw_material_id: id, unit: mat?.unit || 'kg' }))
+    setForm(p => ({
+      ...p,
+      raw_material_id: id,
+      qty_inner: '', qty_outer: '', qty_legacy: '',
+      unit_legacy: mat?.unit || 'kg',
+    }))
   }
 
   async function handleSaveRaw() {
     if (!form.raw_material_id) { setError('원자재를 선택해 주세요.'); return }
     if (!form.lot_number) { setError('LOT 번호를 입력해 주세요.'); return }
-    if (!form.quantity || Number(form.quantity) <= 0) { setError('수량을 입력해 주세요.'); return }
+
+    let quantity, unit, outer_quantity = null, outer_unit = null
+    if (innerUnit) {
+      if (!form.qty_inner || Number(form.qty_inner) <= 0) { setError(`${innerUnit} 수량을 입력해 주세요.`); return }
+      quantity = Number(form.qty_inner); unit = innerUnit
+      if (outerUnit && form.qty_outer !== '' && form.qty_outer != null) {
+        outer_quantity = Number(form.qty_outer); outer_unit = outerUnit
+      }
+    } else if (outerUnit) {
+      if (!form.qty_outer || Number(form.qty_outer) <= 0) { setError(`${outerUnit} 수량을 입력해 주세요.`); return }
+      quantity = Number(form.qty_outer); unit = outerUnit
+    } else {
+      if (!form.qty_legacy || Number(form.qty_legacy) <= 0) { setError('수량을 입력해 주세요.'); return }
+      quantity = Number(form.qty_legacy); unit = form.unit_legacy
+    }
+
     setSaving(true); setError('')
     const { error } = await supabase.from('receiving_lots').insert({
       raw_material_id: form.raw_material_id,
       lot_number: form.lot_number,
-      quantity: Number(form.quantity),
-      unit: form.unit,
+      quantity, unit, outer_quantity, outer_unit,
       received_at: form.received_at,
       supplier_name: form.supplier_name,
       notes: form.notes,
@@ -106,10 +133,39 @@ function ReceivingModal({ rawMaterials, outsourcedItems, onClose, onSave }) {
               <div><Label required>LOT 번호</Label><Input value={form.lot_number} onChange={v => f('lot_number', v)} placeholder="LOT-2025-001" /></div>
               <div><Label required>입고일</Label><Input type="date" value={form.received_at} onChange={v => f('received_at', v)} /></div>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-              <div><Label required>수량</Label><Input type="number" value={form.quantity} onChange={v => f('quantity', v)} placeholder="0" /></div>
-              <div><Label>단위</Label><Input value={form.unit} onChange={v => f('unit', v)} placeholder="kg" /></div>
-            </div>
+            {innerUnit && outerUnit ? (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                <div>
+                  <Label required>내포장 수량</Label>
+                  <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 8 }}>
+                    <Input type="number" value={form.qty_inner} onChange={v => f('qty_inner', v)} placeholder="0" />
+                    <Input value={innerUnit} disabled onChange={() => {}} />
+                  </div>
+                </div>
+                <div>
+                  <Label>외포장 수량</Label>
+                  <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 8 }}>
+                    <Input type="number" value={form.qty_outer} onChange={v => f('qty_outer', v)} placeholder="0" />
+                    <Input value={outerUnit} disabled onChange={() => {}} />
+                  </div>
+                </div>
+              </div>
+            ) : innerUnit ? (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                <div><Label required>수량</Label><Input type="number" value={form.qty_inner} onChange={v => f('qty_inner', v)} placeholder="0" /></div>
+                <div><Label>단위</Label><Input value={innerUnit} disabled onChange={() => {}} /></div>
+              </div>
+            ) : outerUnit ? (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                <div><Label required>수량</Label><Input type="number" value={form.qty_outer} onChange={v => f('qty_outer', v)} placeholder="0" /></div>
+                <div><Label>단위</Label><Input value={outerUnit} disabled onChange={() => {}} /></div>
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                <div><Label required>수량</Label><Input type="number" value={form.qty_legacy} onChange={v => f('qty_legacy', v)} placeholder="0" /></div>
+                <div><Label>단위</Label><Input value={form.unit_legacy} onChange={v => f('unit_legacy', v)} placeholder="kg" /></div>
+              </div>
+            )}
             <div><Label>공급업체</Label><Input value={form.supplier_name} onChange={v => f('supplier_name', v)} placeholder="(주)바다김" /></div>
           </>
         ) : (
