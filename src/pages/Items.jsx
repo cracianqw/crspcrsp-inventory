@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
-import { Edit2, Package, Wheat, History, Power, PowerOff, Trash2 } from 'lucide-react'
+import { Edit2, Package, Wheat, History, Power, PowerOff, Trash2, Settings, ArrowUp, ArrowDown, Plus } from 'lucide-react'
 import {
   Card, Btn, RegisterBtn, IconBtn,
   Label, Input, SelectInput,
@@ -232,26 +232,45 @@ function ItemModal({ item, profile, onClose, onSave }) {
 }
 
 // ── 원자재 모달 ─────────────────────────────────────
-function RawMaterialModal({ item, onClose, onSave }) {
+const FREE_TEXT_NAMES = ['기타', '직접입력']
+const isFreeTextSub = sub => !!sub && FREE_TEXT_NAMES.includes(sub.name)
+
+function RawMaterialModal({ item, categories, subcategories, onClose, onSave }) {
+  const initialSub = subcategories.find(s => s.id === item?.subcategory_id) || null
   const [form, setForm] = useState({
-    code:       item?.code || '',
-    name:       item?.name || '',
-    inner_unit: item?.inner_unit ?? item?.unit ?? '',
-    outer_unit: item?.outer_unit ?? '',
+    code:           item?.code || '',
+    category_id:    item?.category_id || '',
+    subcategory_id: item?.subcategory_id || '',
+    custom_name:    initialSub && isFreeTextSub(initialSub) ? (item?.name || '') : '',
+    inner_unit:     item?.inner_unit ?? item?.unit ?? '',
+    outer_unit:     item?.outer_unit ?? '',
   })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const f = (k, v) => setForm(p => ({ ...p, [k]: v }))
 
+  const filteredSubs = useMemo(
+    () => subcategories.filter(s => s.category_id === form.category_id).sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)),
+    [subcategories, form.category_id]
+  )
+  const selectedSub = subcategories.find(s => s.id === form.subcategory_id) || null
+  const needsCustomName = isFreeTextSub(selectedSub)
+
   async function handleSave() {
-    if (!form.code?.trim() || !form.name?.trim()) { setError('코드와 품명은 필수입니다.'); return }
+    if (!form.code?.trim()) { setError('원자재 코드는 필수입니다.'); return }
+    if (!form.category_id) { setError('카테고리를 선택해 주세요.'); return }
+    if (!form.subcategory_id) { setError('항목을 선택해 주세요.'); return }
+    const finalName = needsCustomName ? form.custom_name.trim() : (selectedSub?.name || '').trim()
+    if (!finalName) { setError(needsCustomName ? '원자재명을 입력해 주세요.' : '항목명이 비어있습니다.'); return }
     setSaving(true); setError('')
     const payload = {
-      code:       form.code.trim(),
-      name:       form.name.trim(),
-      unit:       form.inner_unit || 'kg', // 기존 컬럼 호환 (입고/생산 화면에서 사용)
-      inner_unit: form.inner_unit || null,
-      outer_unit: form.outer_unit || null,
+      code:           form.code.trim(),
+      name:           finalName,
+      category_id:    form.category_id,
+      subcategory_id: form.subcategory_id,
+      unit:           form.inner_unit || 'kg', // 기존 컬럼 호환 (입고/생산 화면에서 사용)
+      inner_unit:     form.inner_unit || null,
+      outer_unit:     form.outer_unit || null,
     }
     const { error } = item?.id
       ? await supabase.from('raw_materials').update(payload).eq('id', item.id)
@@ -260,14 +279,41 @@ function RawMaterialModal({ item, onClose, onSave }) {
     setSaving(false)
   }
 
+  const sortedCategories = [...categories].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+
   return (
     <Overlay onClose={onClose} size="md">
       <ModalHeader>{item ? '원자재 수정' : '원자재 등록'}</ModalHeader>
       <ModalBody>
         {error && <ErrorBox msg={error} />}
+
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-          <div><Label required>원자재명</Label><Input value={form.name} onChange={v => f('name', v)} placeholder="조미김 원초" /></div>
-          <div><Label required>원자재 코드</Label><Input value={form.code} onChange={v => f('code', v)} placeholder="RM-001" /></div>
+          <div>
+            <Label required>카테고리</Label>
+            <SelectInput value={form.category_id} onChange={v => setForm(p => ({ ...p, category_id: v, subcategory_id: '', custom_name: '' }))}>
+              <option value="">— 선택 —</option>
+              {sortedCategories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </SelectInput>
+          </div>
+          <div>
+            <Label required>항목</Label>
+            <SelectInput value={form.subcategory_id} onChange={v => f('subcategory_id', v)}>
+              <option value="">— 선택 —</option>
+              {filteredSubs.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </SelectInput>
+          </div>
+        </div>
+
+        {needsCustomName && (
+          <div style={{ marginTop: 16 }}>
+            <Label required>원자재명 (직접 입력)</Label>
+            <Input value={form.custom_name} onChange={v => f('custom_name', v)} placeholder="원자재명을 입력하세요" />
+          </div>
+        )}
+
+        <div style={{ marginTop: 16 }}>
+          <Label required>원자재 코드 (자호)</Label>
+          <Input value={form.code} onChange={v => f('code', v)} placeholder="RM-001" />
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginTop: 16 }}>
@@ -412,15 +458,161 @@ function TypeChooserModal({ onChoose, onClose }) {
   )
 }
 
+// ── 원자재 카테고리 관리 (마스터 전용) ──────────────
+function CategoryManagerTab({ categories, subcategories, onRefresh }) {
+  const [selectedCatId, setSelectedCatId] = useState(categories[0]?.id || '')
+  const sortedCats = [...categories].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+  const sortedSubs = subcategories
+    .filter(s => s.category_id === selectedCatId)
+    .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+
+  async function addCategory() {
+    const name = prompt('새 카테고리 이름을 입력하세요')
+    if (!name?.trim()) return
+    const maxOrder = Math.max(0, ...categories.map(c => c.sort_order ?? 0))
+    const { error } = await supabase.from('raw_material_categories').insert({ name: name.trim(), sort_order: maxOrder + 1 })
+    if (error) { alert(error.message); return }
+    onRefresh()
+  }
+  async function renameCategory(cat) {
+    const name = prompt('카테고리 이름 수정', cat.name)
+    if (!name?.trim() || name.trim() === cat.name) return
+    const { error } = await supabase.from('raw_material_categories').update({ name: name.trim() }).eq('id', cat.id)
+    if (error) { alert(error.message); return }
+    onRefresh()
+  }
+  async function deleteCategory(cat) {
+    if (!confirm(`[${cat.name}] 카테고리와 모든 하위 항목을 삭제하시겠습니까?\n해당 카테고리를 사용 중인 원자재의 카테고리는 자동으로 비워집니다.`)) return
+    const { error } = await supabase.from('raw_material_categories').delete().eq('id', cat.id)
+    if (error) { alert(error.message); return }
+    if (selectedCatId === cat.id) setSelectedCatId('')
+    onRefresh()
+  }
+  async function moveCategory(idx, delta) {
+    const a = sortedCats[idx], b = sortedCats[idx + delta]
+    if (!a || !b) return
+    await Promise.all([
+      supabase.from('raw_material_categories').update({ sort_order: b.sort_order }).eq('id', a.id),
+      supabase.from('raw_material_categories').update({ sort_order: a.sort_order }).eq('id', b.id),
+    ])
+    onRefresh()
+  }
+
+  async function addSubcategory() {
+    if (!selectedCatId) { alert('먼저 카테고리를 선택해 주세요.'); return }
+    const name = prompt('새 항목 이름을 입력하세요')
+    if (!name?.trim()) return
+    const sameCatSubs = subcategories.filter(s => s.category_id === selectedCatId)
+    const maxOrder = Math.max(0, ...sameCatSubs.map(s => s.sort_order ?? 0))
+    const { error } = await supabase.from('raw_material_subcategories').insert({
+      category_id: selectedCatId, name: name.trim(), sort_order: maxOrder + 1,
+    })
+    if (error) { alert(error.message); return }
+    onRefresh()
+  }
+  async function renameSubcategory(sub) {
+    const name = prompt('항목 이름 수정', sub.name)
+    if (!name?.trim() || name.trim() === sub.name) return
+    const { error } = await supabase.from('raw_material_subcategories').update({ name: name.trim() }).eq('id', sub.id)
+    if (error) { alert(error.message); return }
+    onRefresh()
+  }
+  async function deleteSubcategory(sub) {
+    if (!confirm(`[${sub.name}] 항목을 삭제하시겠습니까?\n해당 항목을 사용 중인 원자재의 항목은 자동으로 비워집니다.`)) return
+    const { error } = await supabase.from('raw_material_subcategories').delete().eq('id', sub.id)
+    if (error) { alert(error.message); return }
+    onRefresh()
+  }
+  async function moveSubcategory(idx, delta) {
+    const a = sortedSubs[idx], b = sortedSubs[idx + delta]
+    if (!a || !b) return
+    await Promise.all([
+      supabase.from('raw_material_subcategories').update({ sort_order: b.sort_order }).eq('id', a.id),
+      supabase.from('raw_material_subcategories').update({ sort_order: a.sort_order }).eq('id', b.id),
+    ])
+    onRefresh()
+  }
+
+  const PaneHeader = ({ title, onAdd, addLabel }) => (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', borderBottom: '1px solid #e5e7eb', background: '#fafafa' }}>
+      <span style={{ fontSize: 14, fontWeight: 700, color: '#111827' }}>{title}</span>
+      <button onClick={onAdd}
+        style={{
+          display: 'inline-flex', alignItems: 'center', gap: 4,
+          padding: '6px 10px', fontSize: 12, fontWeight: 600,
+          background: '#004634', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer',
+        }}>
+        <Plus size={14} />{addLabel}
+      </button>
+    </div>
+  )
+
+  const ListRow = ({ active, onSelect, label, onUp, onDown, onEdit, onDelete }) => (
+    <div onClick={onSelect}
+      style={{
+        display: 'flex', alignItems: 'center', gap: 6, padding: '10px 12px',
+        borderBottom: '1px solid #f3f4f6', cursor: onSelect ? 'pointer' : 'default',
+        background: active ? '#FCF4E2' : 'transparent',
+      }}>
+      <span style={{ flex: 1, fontSize: 14, fontWeight: active ? 600 : 500, color: '#111827' }}>{label}</span>
+      <IconBtn icon={ArrowUp} onClick={e => { e?.stopPropagation?.(); onUp() }} label="위로" />
+      <IconBtn icon={ArrowDown} onClick={e => { e?.stopPropagation?.(); onDown() }} label="아래로" />
+      <IconBtn icon={Edit2} onClick={e => { e?.stopPropagation?.(); onEdit() }} label="수정" />
+      <IconBtn icon={Trash2} variant="danger" onClick={e => { e?.stopPropagation?.(); onDelete() }} label="삭제" />
+    </div>
+  )
+
+  return (
+    <div style={{ padding: 24 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+        <div style={{ border: '1px solid #e5e7eb', borderRadius: 10, overflow: 'hidden', background: '#fff' }}>
+          <PaneHeader title="카테고리" onAdd={addCategory} addLabel="카테고리 추가" />
+          {sortedCats.length === 0 ? (
+            <div style={{ padding: 24, textAlign: 'center', color: '#9ca3af', fontSize: 13 }}>등록된 카테고리가 없습니다</div>
+          ) : sortedCats.map((c, idx) => (
+            <ListRow key={c.id} active={c.id === selectedCatId}
+              onSelect={() => setSelectedCatId(c.id)}
+              label={c.name}
+              onUp={() => moveCategory(idx, -1)}
+              onDown={() => moveCategory(idx, +1)}
+              onEdit={() => renameCategory(c)}
+              onDelete={() => deleteCategory(c)} />
+          ))}
+        </div>
+
+        <div style={{ border: '1px solid #e5e7eb', borderRadius: 10, overflow: 'hidden', background: '#fff' }}>
+          <PaneHeader
+            title={selectedCatId ? `항목 — ${sortedCats.find(c => c.id === selectedCatId)?.name || ''}` : '항목 (카테고리 선택)'}
+            onAdd={addSubcategory} addLabel="항목 추가" />
+          {!selectedCatId ? (
+            <div style={{ padding: 24, textAlign: 'center', color: '#9ca3af', fontSize: 13 }}>왼쪽에서 카테고리를 선택해 주세요</div>
+          ) : sortedSubs.length === 0 ? (
+            <div style={{ padding: 24, textAlign: 'center', color: '#9ca3af', fontSize: 13 }}>등록된 항목이 없습니다</div>
+          ) : sortedSubs.map((s, idx) => (
+            <ListRow key={s.id}
+              label={s.name}
+              onUp={() => moveSubcategory(idx, -1)}
+              onDown={() => moveSubcategory(idx, +1)}
+              onEdit={() => renameSubcategory(s)}
+              onDelete={() => deleteSubcategory(s)} />
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── 메인 ─────────────────────────────────────────────
 export default function Items() {
-  const { profile, canInsert, canUpdate, canDelete } = useAuth()
-  // 조회는 모두, 입력=매니저+, 수정/삭제=시니어+
+  const { profile, canInsert, canUpdate, canDelete, canManage } = useAuth()
+  // 조회는 모두, 입력=매니저+, 수정/삭제=시니어+, 카테고리 관리=마스터
   const canEditRow = canUpdate  // 수정/생산중지
   const canSoftDelete = canDelete
   const [tab, setTab] = useState('items')
   const [items, setItems] = useState([])
   const [rawMaterials, setRawMaterials] = useState([])
+  const [rmCategories, setRmCategories] = useState([])
+  const [rmSubcategories, setRmSubcategories] = useState([])
   const [loading, setLoading] = useState(true)
   const [modal, setModal] = useState(null)
   const [selected, setSelected] = useState(null)
@@ -430,9 +622,11 @@ export default function Items() {
 
   async function fetchAll() {
     setLoading(true)
-    const [{ data: its }, { data: rms }] = await Promise.all([
+    const [{ data: its }, { data: rms }, { data: cats }, { data: subs }] = await Promise.all([
       supabase.from('items').select('*').is('deleted_at', null).order('name'),
       supabase.from('raw_materials').select('*').is('deleted_at', null).order('name'),
+      supabase.from('raw_material_categories').select('*').order('sort_order'),
+      supabase.from('raw_material_subcategories').select('*').order('sort_order'),
     ])
     // 정렬: 품명 오름차순, 동일 품명 내에서 자체생산(internal) 먼저, 외주(outsourced) 뒤
     const sorted = (its || []).slice().sort((a, b) => {
@@ -442,6 +636,7 @@ export default function Items() {
       return (order[a.production_type] ?? 0) - (order[b.production_type] ?? 0)
     })
     setItems(sorted); setRawMaterials(rms || [])
+    setRmCategories(cats || []); setRmSubcategories(subs || [])
     setLoading(false)
   }
 
@@ -508,6 +703,7 @@ export default function Items() {
           {[
             { key: 'items', label: '완성품', icon: Package },
             { key: 'raw',   label: '원자재', icon: Wheat },
+            ...(canManage ? [{ key: 'raw-categories', label: '원자재 카테고리', icon: Settings }] : []),
           ].map(t => {
             const active = tab === t.key
             const Icon = t.icon
@@ -555,6 +751,10 @@ export default function Items() {
 
         {loading ? (
           <div style={{ padding: '72px 0', display: 'flex', justifyContent: 'center' }}><Spinner /></div>
+        ) : tab === 'raw-categories' ? (
+          canManage ? (
+            <CategoryManagerTab categories={rmCategories} subcategories={rmSubcategories} onRefresh={fetchAll} />
+          ) : <EmptyState icon={Settings} text="권한이 없습니다" />
         ) : tab === 'items' ? (
           filtered.length === 0 ? <EmptyState icon={Package} text={activeFilter === 'inactive' ? '생산중지 품목이 없습니다' : '등록된 완성품이 없습니다'} /> : (
             <div className="tbl-wrap">
@@ -660,7 +860,8 @@ export default function Items() {
         <ItemModal item={selected} profile={profile} onClose={() => { setModal(null); setSelected(null) }} onSave={handleSaved} />
       )}
       {(modal === 'new-raw' || modal === 'edit-raw') && (
-        <RawMaterialModal item={selected} onClose={() => { setModal(null); setSelected(null) }} onSave={handleSaved} />
+        <RawMaterialModal item={selected} categories={rmCategories} subcategories={rmSubcategories}
+          onClose={() => { setModal(null); setSelected(null) }} onSave={handleSaved} />
       )}
       {modal === 'history' && selected && (
         <HistoryModal item={selected} onClose={() => { setModal(null); setSelected(null) }} />
