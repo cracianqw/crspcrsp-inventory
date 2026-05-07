@@ -234,6 +234,22 @@ function ItemModal({ item, profile, onClose, onSave }) {
 // ── 원자재 모달 ─────────────────────────────────────
 const FREE_TEXT_NAMES = ['기타', '직접입력']
 const isFreeTextSub = sub => !!sub && FREE_TEXT_NAMES.includes(sub.name)
+const codePrefixOf = cat => (cat?.name || '').slice(0, 2)
+
+async function nextRawCode(category) {
+  const prefix = codePrefixOf(category)
+  if (!prefix) return ''
+  const { data } = await supabase
+    .from('raw_materials')
+    .select('code')
+    .ilike('code', `${prefix}-%`)
+  const re = new RegExp(`^${prefix}-(\\d+)$`)
+  const used = (data || [])
+    .map(r => { const m = re.exec(r.code || ''); return m ? parseInt(m[1], 10) : null })
+    .filter(n => Number.isFinite(n))
+  const max = used.length ? Math.max(...used) : 0
+  return `${prefix}-${String(max + 1).padStart(3, '0')}`
+}
 
 function RawMaterialModal({ item, categories, subcategories, onClose, onSave }) {
   const initialSub = subcategories.find(s => s.id === item?.subcategory_id) || null
@@ -255,6 +271,19 @@ function RawMaterialModal({ item, categories, subcategories, onClose, onSave }) 
   )
   const selectedSub = subcategories.find(s => s.id === form.subcategory_id) || null
   const needsCustomName = isFreeTextSub(selectedSub)
+
+  // 신규 등록: 카테고리 선택 시 다음 코드 자동 부여 (수정 모드는 기존 코드 유지)
+  useEffect(() => {
+    if (item?.id) return
+    if (!form.category_id) { setForm(p => ({ ...p, code: '' })); return }
+    const cat = categories.find(c => c.id === form.category_id)
+    if (!cat) return
+    let cancelled = false
+    nextRawCode(cat).then(code => {
+      if (!cancelled) setForm(p => ({ ...p, code }))
+    })
+    return () => { cancelled = true }
+  }, [form.category_id, item?.id, categories])
 
   async function handleSave() {
     if (!form.code?.trim()) { setError('원자재 코드는 필수입니다.'); return }
@@ -313,7 +342,10 @@ function RawMaterialModal({ item, categories, subcategories, onClose, onSave }) 
 
         <div style={{ marginTop: 16 }}>
           <Label required>원자재 코드 (자호)</Label>
-          <Input value={form.code} onChange={v => f('code', v)} placeholder="RM-001" />
+          <Input value={form.code} onChange={() => {}} disabled placeholder="카테고리 선택 시 자동 생성" />
+          <p style={{ fontSize: 12, color: '#9ca3af', marginTop: 6 }}>
+            카테고리별 자동 부여: {`{카테고리명 앞 2자}-{3자리 순번}`}
+          </p>
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginTop: 16 }}>
